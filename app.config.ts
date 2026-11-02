@@ -10,7 +10,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
   return {
     ...config,
-    name: 'HelloSpark',
+    name: 'TradeMindra Ultra',
     slug: 'hellospark',
     version: process.env.BILT_APP_VERSION ?? '1.0.0',
     orientation: 'portrait',
@@ -41,7 +41,13 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     extra: {
       appStoreAppId: process.env.BILT_APP_STORE_APP_ID,
     },
-    plugins: ['expo-router', 'expo-font', ...nativePlugins],
+    plugins: [
+      'expo-router',
+      'expo-font',
+      'expo-sharing',
+      '@react-native-community/datetimepicker',
+      ...nativePlugins,
+    ],
     experiments: {
       typedRoutes: true,
       reactCompiler: true,

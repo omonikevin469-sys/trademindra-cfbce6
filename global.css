@@ -40,3 +40,53 @@
 @source './node_modules/heroui-native/lib';
 
 /* Calculated HeroUI color tokens are registered for web in lib/registerColorTokens.ts. */
+@layer theme {
+  :root {
+    @variant light {
+      --background: oklch(1 0 0);
+      --foreground: oklch(0 0 0);
+      --surface: oklch(1 0 0);
+      --surface-foreground: oklch(0 0 0);
+      --overlay: oklch(1 0 0);
+      --overlay-foreground: oklch(0 0 0);
+      --accent: oklch(0 0 0);
+      --accent-foreground: oklch(1 0 0);
+      --muted: oklch(0 0 0);
+      --default: oklch(0.96 0 0);
+      --default-foreground: oklch(0 0 0);
+      --border: oklch(0.78 0 0);
+      --field-background: oklch(1 0 0);
+      --field-foreground: oklch(0 0 0);
+      --field-placeholder: oklch(0.4 0 0);
+      --field-border: oklch(0.65 0 0);
+      --danger: oklch(0 0 0);
+      --danger-foreground: oklch(1 0 0);
+      --success: oklch(0 0 0);
+      --success-foreground: oklch(1 0 0);
+      --focus: oklch(0 0 0);
+    }
+    @variant dark {
+      --background: oklch(1 0 0);
+      --foreground: oklch(0 0 0);
+      --surface: oklch(1 0 0);
+      --surface-foreground: oklch(0 0 0);
+      --overlay: oklch(1 0 0);
+      --overlay-foreground: oklch(0 0 0);
+      --accent: oklch(0 0 0);
+      --accent-foreground: oklch(1 0 0);
+      --muted: oklch(0 0 0);
+      --default: oklch(0.96 0 0);
+      --default-foreground: oklch(0 0 0);
+      --border: oklch(0.78 0 0);
+      --field-background: oklch(1 0 0);
+      --field-foreground: oklch(0 0 0);
+      --field-placeholder: oklch(0.4 0 0);
+      --field-border: oklch(0.65 0 0);
+      --danger: oklch(0 0 0);
+      --danger-foreground: oklch(1 0 0);
+      --success: oklch(0 0 0);
+      --success-foreground: oklch(1 0 0);
+      --focus: oklch(0 0 0);
+    }
+  }
+}

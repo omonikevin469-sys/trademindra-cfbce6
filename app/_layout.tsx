@@ -28,6 +28,8 @@ import { initPostHog } from '@/lib/posthog';
 import { registerServiceWorker } from '@/lib/registerServiceWorker';
 import { reportErrorToParent } from '@/lib/reportPreviewError';
 import { InstallPrompt } from '@/components/InstallPrompt';
+import { CloudGate } from '@/components/CloudGate';
+import { useThemeColor } from 'heroui-native';
 
 /**
  * Custom ErrorBoundary that reports React render errors to the parent window (Bilt preview iframe)
@@ -55,6 +57,7 @@ Uniwind.setTheme('light');
 void SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
+  const [background, foreground] = useThemeColor(['background', 'foreground']);
   const [loaded, error] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -147,9 +150,22 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <HeroUINativeProvider>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ title: 'Habits', headerShown: false }} />
-        </Stack>
+        <CloudGate>
+          <Stack
+            screenOptions={{
+              headerStyle: { backgroundColor: background },
+              headerTintColor: foreground,
+              headerShadowVisible: false,
+              contentStyle: { backgroundColor: background },
+            }}
+          >
+            <Stack.Screen name="(tabs)" options={{ title: 'TradeMindra', headerShown: false }} />
+            <Stack.Screen name="new-trade" options={{ title: 'Record a trade' }} />
+            <Stack.Screen name="trade/[id]" options={{ title: 'Trade journal' }} />
+            <Stack.Screen name="strategy" options={{ title: 'GR-ATC' }} />
+            <Stack.Screen name="sync-conflicts" options={{ title: 'Review sync changes' }} />
+          </Stack>
+        </CloudGate>
         <InstallPrompt />
       </HeroUINativeProvider>
     </GestureHandlerRootView>
