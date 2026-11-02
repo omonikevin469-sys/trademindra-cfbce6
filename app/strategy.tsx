@@ -16,7 +16,7 @@ const rules = [
   ],
   [
     'Session & instruments',
-    'XAUUSD is primary; EURJPY is secondary. Other instruments require a saved broker pip size. The entry window is 4:00–9:00 PM EAT, Monday–Friday. Stop looking for new entries at 9:00 PM.',
+    'XAUUSD is primary; EURJPY is secondary. Directory instruments use their GR-ATC pip-size defaults unless overridden for your broker in Settings. Custom instruments require a saved broker pip size. The entry window is 4:00–9:00 PM EAT, Monday–Friday. Stop looking for new entries at 9:00 PM.',
   ],
   [
     'Risk guideline',

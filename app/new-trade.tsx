@@ -24,6 +24,8 @@ import {
 import { emotions, entryGate, type TradeAudit } from '@/lib/terminus';
 import { goBackOrReplace } from '@/lib/navigation';
 import { BalanceControl } from '@/components/BalanceControl';
+import { InstrumentPicker } from '@/components/InstrumentPicker';
+import { resolvePipSize } from '@/constants/instruments';
 const initial = {
   instrument: '',
   direction: 'Long',
@@ -70,7 +72,8 @@ export default function NewTrade() {
   const gate = entryGate(account, accountTrades, now, circuitUntil(accountTrades));
   const equity = balance(state.accountId, state.trades, state.transactions);
   const symbol = draft.instrument.trim().toUpperCase();
-  const pipSize = account?.pipSettings?.find((p) => p.instrument === symbol)?.size;
+  const pipSize = resolvePipSize(symbol, account?.pipSettings);
+  const pipOverride = account?.pipSettings?.some((p) => p.instrument === symbol);
   const riskAmount = Number(draft.plannedRisk);
   const recordedBalance = Number(draft.accountBalance);
   const positionRisk = Number(draft.stopPips) * Number(draft.pipValue) * Number(draft.lots);
@@ -89,7 +92,7 @@ export default function NewTrade() {
     const timeframe = draft.timeframe;
     if (timeframe !== '1H' && timeframe !== '15M')
       return fail('Select the timeframe that defines the extreme.');
-    if (!pipSize) return fail('Save this instrument’s broker pip size in Settings first.');
+    if (!pipSize) return fail('Select an instrument with a pip size.');
     const numeric = [
       'entry',
       'stop',
@@ -206,7 +209,17 @@ export default function NewTrade() {
       ))}
       <BalanceControl key={state.accountId} />
       <Section title="1. Instrument & direction">
-        {field('instrument', 'Instrument')}
+        <InstrumentPicker
+          value={symbol}
+          onChange={(value) => update('instrument', value)}
+          overrides={account.pipSettings}
+        />
+        <Field
+          label={pipOverride ? 'Pip size · broker override' : 'Pip size · GR-ATC default'}
+          value={pipSize === undefined ? '' : String(pipSize)}
+          placeholder="Select an instrument"
+          readOnly
+        />
         {options('direction', 'Direction', ['Long', 'Short'])}
         {options('session', 'Session · 16:00–21:00 EAT', ['London', 'New York', 'Other'])}
         {options('grade', 'Setup grade', ['A+', 'A++'])}
@@ -243,10 +256,10 @@ export default function NewTrade() {
       </Section>
       <Section title="6. Manual math audit">
         <Text className="text-muted">
-          Enter your BabyPips figures. Nothing is filled in for you. Pip value is USD per pip for
-          one standard lot.
+          Enter your manual BabyPips figures. Pip size comes from your instrument or broker
+          override. Pip value is USD per pip for one standard lot.
         </Text>
-        <Text className="text-foreground">Saved pip size: {pipSize ?? 'Not set'}</Text>
+        <Text className="text-foreground">Pip size: {pipSize ?? 'Select an instrument'}</Text>
         <Action label="Manage pip sizes" secondary onPress={() => router.push('/settings')} />
         {field('accountBalance', 'Account balance (USD)', true)}
         {field('riskPercent', 'Risk (%)', true)}

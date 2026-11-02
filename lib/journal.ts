@@ -4,6 +4,7 @@ import { AppState } from 'react-native';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import * as Haptics from 'expo-haptics';
+import { resolvePipSize } from '@/constants/instruments';
 import {
   auditFailure,
   auditLabels,
@@ -182,6 +183,7 @@ interface JournalState {
   transact: (amount: number, note: string) => void;
   setCurrentBalance: (amount: number) => boolean;
   savePipSize: (instrument: string, size: number) => void;
+  resetPipSize: (instrument: string) => void;
   addNewsEvent: (event: Omit<NewsEvent, 'id'>) => void;
   addTrade: (trade: Omit<Trade, 'id' | 'date' | 'accountId'>) => string | undefined;
   closeTrade: (
@@ -291,6 +293,20 @@ export const useJournal = create<JournalState>()(
         }));
         success();
       },
+      resetPipSize: (instrument) => {
+        const symbol = instrument.trim().toUpperCase();
+        set((s) => ({
+          accounts: s.accounts.map((a) =>
+            a.id === s.accountId
+              ? {
+                  ...a,
+                  pipSettings: (a.pipSettings ?? []).filter((pip) => pip.instrument !== symbol),
+                }
+              : a,
+          ),
+        }));
+        success();
+      },
       addNewsEvent: (event) => {
         set((s) => ({
           accounts: s.accounts.map((a) =>
@@ -313,9 +329,9 @@ export const useJournal = create<JournalState>()(
         const equity = balance(current.accountId, current.trades, current.transactions);
         if (equity <= 0)
           return 'Update your account balance to a positive amount before recording a trade.';
-        const savedPip = account.pipSettings?.find((p) => p.instrument === trade.instrument);
-        if (!savedPip || savedPip.size !== trade.audit?.pipSize)
-          return 'Save the instrument’s broker pip size in Settings first.';
+        const pipSize = resolvePipSize(trade.instrument, account.pipSettings);
+        if (!pipSize || pipSize !== trade.audit?.pipSize)
+          return 'The instrument’s pip size changed. Check the current pip size before saving.';
         const date = new Date().toISOString();
         const overLimit = exceedsRiskLimit(trade, equity);
         set((s) => ({

@@ -165,9 +165,9 @@ export function auditFailure(
   const matches = (pips: number, distance: number) =>
     Math.abs(pips - distance / audit.pipSize) <= Math.max(0.000001, pips * 1e-8);
   if (!matches(audit.stopPips, Math.abs(trade.entry - trade.stop)))
-    return 'Stop-loss pips do not match the entry and stop prices using your saved pip size.';
+    return 'Stop-loss pips do not match the entry and stop prices using the selected pip size.';
   if (!matches(audit.targetPips, Math.abs(trade.target - trade.entry)))
-    return 'Take-profit pips do not match the entry and target prices using your saved pip size.';
+    return 'Take-profit pips do not match the entry and target prices using the selected pip size.';
   if (audit.targetPips < audit.stopPips * 2)
     return 'Take-profit pips must be at least twice stop-loss pips.';
   return undefined;

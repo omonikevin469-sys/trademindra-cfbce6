@@ -120,14 +120,16 @@ export function Field({
   placeholder,
   keyboardType,
   multiline = false,
+  readOnly = false,
   error,
 }: {
   label: string;
   value: string;
-  onChange: (text: string) => void;
+  onChange?: (text: string) => void;
   placeholder?: string;
   keyboardType?: KeyboardTypeOptions;
   multiline?: boolean;
+  readOnly?: boolean;
   error?: string;
 }) {
   const scale = useReadingScale();
@@ -139,6 +141,7 @@ export function Field({
       </Label>
       {multiline ? (
         <TextArea
+          editable={!readOnly}
           value={value}
           onChangeText={onChange}
           placeholder={placeholder}
@@ -149,6 +152,7 @@ export function Field({
         <Input
           style={{ ...textStyle, height: undefined, minHeight: 48 * scale, paddingVertical: 12 }}
           className="border-field-border h-auto rounded-xl border"
+          editable={!readOnly}
           value={value}
           onChangeText={onChange}
           placeholder={placeholder}
