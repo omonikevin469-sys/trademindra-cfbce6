@@ -300,6 +300,47 @@ void test('submission accepts inconsistent trader calculations unchanged within 
     assert.ok(auditFailure(trade), 'Strict analytics remains separate from submission');
   }
 });
+void test('each extreme timeframe is accepted and missing confirmations have specific errors', () => {
+  const base = draft(2);
+  assert.ok(base.audit);
+  for (const timeframe of ['1H', '15M'] as const) {
+    const trade: TradeDraft & { audit: NonNullable<TradeDraft['audit']> } = {
+      ...base,
+      audit: { ...base.audit, timeframe },
+    };
+    assert.equal(submissionFailure(trade, 10000), undefined);
+    assert.equal(
+      submissionFailure({ ...trade, audit: { ...trade.audit, manualEntry: false } }, 10000),
+      'Confirm “Did I enter manually?” in the Manual entry section.',
+    );
+  }
+  assert.equal(
+    submissionFailure({ ...base, audit: undefined }, 10000),
+    'Select the timeframe that defines the extreme.',
+  );
+});
+void test('BabyPips disagreement never blocks submission when other requirements pass', () => {
+  const base = draft(2);
+  assert.ok(base.audit);
+  const trade: TradeDraft = {
+    ...base,
+    plannedRisk: 125,
+    stop: 1.08,
+    target: 1.15,
+    lots: 0.12,
+    audit: {
+      ...base.audit,
+      stopPips: 37,
+      targetPips: 83,
+      units: 987,
+      lotsInput: '0.12',
+    },
+  };
+  const original = structuredClone(trade);
+  assert.match(auditFailure(trade) ?? '', /Manual risk figures disagree/);
+  assert.equal(submissionFailure(trade, 10000), undefined);
+  assert.deepEqual(trade, original);
+});
 void test('saved news blackout includes its start, excludes its end and merges overlapping windows', () => {
   const now = Date.parse('2026-11-02T14:00:00Z');
   const account: Account = {

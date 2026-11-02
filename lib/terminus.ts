@@ -106,16 +106,13 @@ export function exceedsRiskLimit(
   );
 }
 export function submissionFailure(trade: TradeDraft, currentBalance: number): string | undefined {
-  const failure = auditFailure(trade, { allowMathOverride: true });
+  const failure = tradeRequirementsFailure(trade);
   if (failure) return failure;
   if (currentBalance <= 0 || exceedsDeclaredRiskLimit(trade, currentBalance))
     return 'Planned risk exceeds 2% of your current account balance. Update the manual balance if it has changed.';
   return undefined;
 }
-export function auditFailure(
-  trade: TradeDraft,
-  options: { allowMathOverride?: boolean } = {},
-): string | undefined {
+function tradeRequirementsFailure(trade: TradeDraft): string | undefined {
   const audit = trade.audit;
   if (!trade.instrument.trim()) return 'Enter the instrument.';
   if (trade.circuit !== 'Clear') return 'Clear the circuit breaker before recording a trade.';
@@ -137,13 +134,10 @@ export function auditFailure(
     return 'Complete every cascade and narrative field.';
   if (!['Quiet', 'Aligned'].includes(trade.news) || trade.checklist !== 'Yes')
     return 'Complete the pre-entry checks.';
-  if (
-    !audit ||
-    !['1H', '15M'].includes(audit.timeframe) ||
-    !audit.manualEntry ||
-    !emotions.includes(audit.emotion)
-  )
-    return 'Select the extreme timeframe, confirm manual entry, and record your emotion.';
+  if (!audit || !['1H', '15M'].includes(audit.timeframe))
+    return 'Select the timeframe that defines the extreme.';
+  if (!audit.manualEntry) return 'Confirm “Did I enter manually?” in the Manual entry section.';
+  if (!emotions.includes(audit.emotion)) return 'Select your entry emotion.';
   if (
     [
       trade.entry,
@@ -161,10 +155,7 @@ export function auditFailure(
     ].some((n) => !Number.isFinite(n) || n <= 0)
   )
     return 'Fill every trade value field with a positive number.';
-  const overRiskLimit = options.allowMathOverride
-    ? exceedsDeclaredRiskLimit(trade)
-    : exceedsRiskLimit(trade);
-  if (overRiskLimit) return 'Risk exceeds the 2% guideline.';
+  if (exceedsDeclaredRiskLimit(trade)) return 'Risk exceeds the 2% guideline.';
   if (!/^\d+(\.\d{1,2})?$/.test(audit.lotsInput))
     return 'Standard lots must use at most two decimal places.';
   if (
@@ -174,7 +165,13 @@ export function auditFailure(
     return 'Stop and target must sit on opposite sides of entry in the trade direction.';
   if (audit.targetPips < audit.stopPips * 2)
     return 'Take-profit pips must be at least twice stop-loss pips.';
-  if (options.allowMathOverride) return undefined;
+  return undefined;
+}
+export function auditFailure(trade: TradeDraft): string | undefined {
+  const failure = tradeRequirementsFailure(trade);
+  if (failure) return failure;
+  const audit = trade.audit!;
+  if (exceedsRiskLimit(trade)) return 'Risk exceeds the 2% guideline.';
   const risk = trade.plannedRisk!;
   const positionRisk = audit.stopPips * audit.pipValue * trade.lots;
   if (
