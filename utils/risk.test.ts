@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { auditFailure, entryGate, exceedsRiskLimit, type TradeDraft } from '@/lib/terminus';
+import {
+  auditFailure,
+  entryGate,
+  exceedsRiskLimit,
+  submissionFailure,
+  type TradeDraft,
+} from '@/lib/terminus';
 import type { Account, Trade } from '@/lib/journal';
 import { findInstrument, instruments, resolvePipSize } from '@/constants/instruments';
 function draft(riskPercent = 3): TradeDraft {
@@ -149,52 +155,54 @@ void test('broker-specific pip sizes are used in the manual math audit', () => {
     /Stop-loss pips do not match/,
   );
 });
-void test('above 2% is allowed for entry but still fails strict compliance', () => {
+void test('declared risk above 2% blocks submission and strict compliance', () => {
   const trade = draft();
-  assert.equal(auditFailure(trade, { allowRiskOverride: true }), undefined);
+  assert.equal(submissionFailure(trade, 10000), 'Risk exceeds the 2% guideline.');
   assert.equal(auditFailure(trade), 'Risk exceeds the 2% guideline.');
   assert.equal(exceedsRiskLimit(trade, 10000), true);
 });
-void test('exactly 2% stays compliant', () => {
+void test('exactly 2% stays compliant and can be submitted', () => {
   const trade = draft(2);
   assert.equal(auditFailure(trade), undefined);
+  assert.equal(submissionFailure(trade, 10000), undefined);
   assert.equal(exceedsRiskLimit(trade, 10000), false);
 });
-void test('current equity breaches are detected even when recorded risk is within 2%', () => {
+void test('current equity risk cap and positive balance remain mandatory', () => {
   assert.equal(exceedsRiskLimit(draft(2), 5000), true);
-  assert.equal(auditFailure(draft(2), { allowRiskOverride: true }), undefined);
-});
-void test('risk override does not bypass inconsistent manual math', () => {
-  const trade = { ...draft(), plannedRisk: 400 };
+  for (const equity of [5000, 0, -100]) {
+    assert.match(submissionFailure(draft(2), equity) ?? '', /current account balance/);
+  }
+  const base = draft(2);
+  assert.ok(base.audit);
+  assert.match(submissionFailure({ ...base, plannedRisk: 201 }, 10000) ?? '', /2%/);
   assert.match(
-    auditFailure(trade, { allowRiskOverride: true }) ?? '',
-    /Manual risk figures disagree/,
+    submissionFailure({ ...base, audit: { ...base.audit, riskPercent: 2.01 } }, 10000) ?? '',
+    /2%/,
   );
 });
-void test('risk override does not bypass positive inputs, bias, stop direction or reward checks', () => {
-  assert.match(
-    auditFailure({ ...draft(), lots: 0 }, { allowRiskOverride: true }) ?? '',
-    /positive number/,
-  );
-  assert.match(
-    auditFailure({ ...draft(), h4Bias: 'Bearish' }, { allowRiskOverride: true }) ?? '',
-    /Daily and 4H bias/,
-  );
-  assert.match(
-    auditFailure({ ...draft(), stop: 1.11 }, { allowRiskOverride: true }) ?? '',
-    /opposite sides/,
-  );
-  const trade = draft();
+void test('skipping math verification retains stop direction, lot format and reward requirements', () => {
+  const trade = draft(2);
   assert.ok(trade.audit);
+  for (const invalid of [
+    { ...trade, stop: 1.11 },
+    { ...trade, target: 1.08 },
+    { ...trade, direction: 'Short', dailyBias: 'Bearish', h4Bias: 'Bearish', extreme: 'Premium' },
+  ]) {
+    assert.match(submissionFailure(invalid, 10000) ?? '', /opposite sides/);
+  }
   assert.match(
-    auditFailure(
-      { ...trade, target: 1.115, audit: { ...trade.audit, targetPips: 150 } },
-      { allowRiskOverride: true },
+    submissionFailure(
+      { ...trade, lots: 0.12345, audit: { ...trade.audit, lotsInput: '0.12345' } },
+      10000,
     ) ?? '',
+    /two decimal places/,
+  );
+  assert.match(
+    submissionFailure({ ...trade, audit: { ...trade.audit, targetPips: 150 } }, 10000) ?? '',
     /at least twice/,
   );
 });
-void test('only session, daily limit and loss break lock entry; saved news does not', () => {
+void test('session, daily limit, loss break and saved news blackout lock entry', () => {
   const account: Account = { id: 'account', name: 'Test account' };
   const now = Date.parse('2026-11-02T14:00:00Z');
   assert.equal(entryGate(account, [], now, 0).locked, false);
@@ -210,7 +218,7 @@ void test('only session, daily limit and loss break lock entry; saved news does 
       now,
       0,
     ).locked,
-    false,
+    true,
   );
   const trade: Trade = {
     ...draft(),
@@ -221,7 +229,7 @@ void test('only session, daily limit and loss break lock entry; saved news does 
   assert.equal(entryGate(account, [trade], now, 0).locked, false);
   assert.equal(entryGate(account, [trade, { ...trade, id: 'second' }], now, 0).locked, true);
 });
-void test('submission allows strategy deviations while strict analytics still rejects each one', () => {
+void test('strategy and risk requirements remain mandatory when math verification is skipped', () => {
   const base = draft(2);
   assert.ok(base.audit);
   const cases: TradeDraft[] = [
@@ -230,47 +238,80 @@ void test('submission allows strategy deviations while strict analytics still re
     { ...base, dailyBias: 'Ranging', h4Bias: 'Ranging' },
     { ...base, aligned: 'No' },
     { ...base, extreme: 'Premium' },
-    { ...base, zone: '', sweep: '', m15: '', m1: '', setup: '', reason: '' },
+    ...(['zone', 'sweep', 'm15', 'm1', 'setup', 'reason'] as const).map((field) => ({
+      ...base,
+      [field]: '',
+    })),
     { ...base, news: 'Blackout' },
+    { ...base, news: '' },
     { ...base, checklist: 'No' },
+    { ...base, checklist: '' },
     { ...base, audit: { ...base.audit, manualEntry: false } },
+    { ...base, audit: undefined },
     { ...base, target: 1.115, audit: { ...base.audit, targetPips: 150 } },
   ];
   for (const trade of cases) {
-    assert.equal(
-      auditFailure(trade, { allowRiskOverride: true, allowStrategyOverride: true }),
-      undefined,
-    );
+    assert.ok(submissionFailure(trade, 10000), 'Every nonmath requirement must block submission');
     assert.ok(auditFailure(trade), 'Strict adherence must still flag the deviation');
   }
 });
 void test('submission still requires a clear circuit breaker and complete numeric inputs', () => {
-  const options = { allowRiskOverride: true, allowStrategyOverride: true, allowMathOverride: true };
-  const base = draft();
-  assert.ok(base.audit);
-  for (const circuit of ['Locked', '']) {
-    assert.match(auditFailure({ ...base, circuit }, options) ?? '', /circuit breaker/);
-  }
-  assert.match(auditFailure({ ...base, instrument: '' }, options) ?? '', /instrument/);
-  for (const lots of [0, -1, NaN, Infinity]) {
-    assert.match(auditFailure({ ...base, lots }, options) ?? '', /positive number/);
-  }
-});
-void test('submission accepts trader values without comparing risk, prices, pips or lot precision', () => {
   const base = draft(2);
   assert.ok(base.audit);
-  const options = { allowRiskOverride: true, allowStrategyOverride: true, allowMathOverride: true };
+  for (const circuit of ['Locked', '']) {
+    assert.match(submissionFailure({ ...base, circuit }, 10000) ?? '', /circuit breaker/);
+  }
+  assert.match(submissionFailure({ ...base, instrument: '' }, 10000) ?? '', /instrument/);
+  for (const value of [0, -1, NaN, Infinity]) {
+    for (const field of ['entry', 'stop', 'target', 'lots', 'plannedRisk'] as const) {
+      assert.match(submissionFailure({ ...base, [field]: value }, 10000) ?? '', /positive number/);
+    }
+    for (const field of [
+      'accountBalance',
+      'riskPercent',
+      'stopPips',
+      'targetPips',
+      'pipSize',
+      'pipValue',
+      'units',
+    ] as const) {
+      assert.match(
+        submissionFailure({ ...base, audit: { ...base.audit, [field]: value } }, 10000) ?? '',
+        /positive number/,
+      );
+    }
+  }
+});
+void test('submission accepts inconsistent trader calculations unchanged within mandatory policy limits', () => {
+  const base = draft(2);
+  assert.ok(base.audit);
   const cases: TradeDraft[] = [
-    { ...base, plannedRisk: 400 },
-    { ...base, stop: 1.11 },
-    { ...base, target: 1.08 },
-    { ...base, audit: { ...base.audit, stopPips: 37, targetPips: 19 } },
-    { ...base, lots: 0.12345, audit: { ...base.audit, lotsInput: '0.12345', units: 987 } },
+    { ...base, plannedRisk: 125 },
+    { ...base, stop: 1.08 },
+    { ...base, target: 1.13 },
+    { ...base, audit: { ...base.audit, stopPips: 37, targetPips: 83 } },
+    { ...base, lots: 0.12, audit: { ...base.audit, lotsInput: '0.12', units: 987 } },
+    { ...base, audit: { ...base.audit, pipValue: 100 } },
   ];
   for (const trade of cases) {
     const original = structuredClone(trade);
-    assert.equal(auditFailure(trade, options), undefined);
+    assert.equal(submissionFailure(trade, 10000), undefined);
     assert.deepEqual(trade, original, 'Validation must not recalculate entered values');
     assert.ok(auditFailure(trade), 'Strict analytics remains separate from submission');
   }
+});
+void test('saved news blackout includes its start, excludes its end and merges overlapping windows', () => {
+  const now = Date.parse('2026-11-02T14:00:00Z');
+  const account: Account = {
+    id: 'account',
+    name: 'Test account',
+    newsEvents: [
+      { id: 'first', date: '2026-11-02', time: '17:00', expected: 'Macro release' },
+      { id: 'second', date: '2026-11-02', time: '17:20', expected: 'Press conference' },
+    ],
+  };
+  assert.equal(entryGate(account, [], now - 900001, 0).locked, false);
+  assert.equal(entryGate(account, [], now - 900000, 0).locked, true);
+  assert.match(entryGate(account, [], now, 0).messages.join(' '), /0h 35m 0s/);
+  assert.equal(entryGate(account, [], now + 2100000, 0).locked, false);
 });

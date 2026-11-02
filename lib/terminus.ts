@@ -46,7 +46,7 @@ export function sessionGate(now: number) {
 }
 export const validNewsTime = (time: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(time);
 export function entryGate(
-  _account: Account | undefined,
+  account: Account | undefined,
   trades: Trade[],
   now: number,
   lossUntil: number,
@@ -57,6 +57,21 @@ export function entryGate(
     messages.push(
       `Session opens in ${countdown(session.nextOpen - now)} · Mon–Fri, 16:00–21:00 EAT`,
     );
+  const windows = (account?.newsEvents ?? [])
+    .map((event) => {
+      const time = new Date(`${event.date}T${event.time}:00+03:00`).getTime();
+      return { start: time - 900000, end: time + 900000 };
+    })
+    .sort((a, b) => a.start - b.start);
+  let blackoutEnd = 0;
+  for (const window of windows) {
+    if (
+      (now >= window.start && now < window.end) ||
+      (blackoutEnd > now && window.start <= blackoutEnd)
+    )
+      blackoutEnd = Math.max(blackoutEnd, window.end);
+  }
+  if (blackoutEnd > now) messages.push(`News blackout ends in ${countdown(blackoutEnd - now)}`);
   if (lossUntil > now) messages.push(`Two-loss break ends in ${countdown(lossUntil - now)}`);
   if (trades.filter((trade) => eatDateKey(trade.date) === eatDateKey(now)).length >= 2)
     messages.push('The two-trade EAT daily limit has been reached.');
@@ -67,63 +82,68 @@ export function countdown(ms: number) {
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m ${seconds % 60}s`;
 }
 export type TradeDraft = Omit<Trade, 'id' | 'date' | 'accountId'>;
+export function exceedsDeclaredRiskLimit(
+  trade: Pick<TradeDraft, 'plannedRisk' | 'audit'>,
+  currentBalance?: number,
+): boolean {
+  const audit = trade.audit;
+  if (!audit) return false;
+  return (
+    audit.riskPercent > 2 ||
+    (trade.plannedRisk ?? 0) > audit.accountBalance * 0.02 + 0.000001 ||
+    (currentBalance !== undefined && (trade.plannedRisk ?? 0) > currentBalance * 0.02 + 0.000001)
+  );
+}
 export function exceedsRiskLimit(
   trade: Pick<TradeDraft, 'plannedRisk' | 'lots' | 'audit'>,
   currentBalance?: number,
 ): boolean {
   const audit = trade.audit;
   if (!audit) return false;
-  const positionRisk = audit.stopPips * audit.pipValue * trade.lots;
   return (
-    audit.riskPercent > 2 ||
-    (trade.plannedRisk ?? 0) > audit.accountBalance * 0.02 + 0.000001 ||
-    positionRisk > audit.accountBalance * 0.02 + 0.000001 ||
-    (currentBalance !== undefined && (trade.plannedRisk ?? 0) > currentBalance * 0.02 + 0.000001)
+    exceedsDeclaredRiskLimit(trade, currentBalance) ||
+    audit.stopPips * audit.pipValue * trade.lots > audit.accountBalance * 0.02 + 0.000001
   );
+}
+export function submissionFailure(trade: TradeDraft, currentBalance: number): string | undefined {
+  const failure = auditFailure(trade, { allowMathOverride: true });
+  if (failure) return failure;
+  if (currentBalance <= 0 || exceedsDeclaredRiskLimit(trade, currentBalance))
+    return 'Planned risk exceeds 2% of your current account balance. Update the manual balance if it has changed.';
+  return undefined;
 }
 export function auditFailure(
   trade: TradeDraft,
-  options: {
-    allowRiskOverride?: boolean;
-    allowStrategyOverride?: boolean;
-    allowMathOverride?: boolean;
-  } = {},
+  options: { allowMathOverride?: boolean } = {},
 ): string | undefined {
   const audit = trade.audit;
   if (!trade.instrument.trim()) return 'Enter the instrument.';
   if (trade.circuit !== 'Clear') return 'Clear the circuit breaker before recording a trade.';
-  if (!options.allowStrategyOverride) {
-    if (
-      trade.dailyBias !== trade.h4Bias ||
-      !['Bullish', 'Bearish'].includes(trade.dailyBias) ||
-      trade.aligned !== 'Yes'
-    )
-      return 'Daily and 4H bias must agree before entry.';
-    if (
-      (trade.direction === 'Long' &&
-        (trade.dailyBias !== 'Bullish' || trade.extreme !== 'Discount')) ||
-      (trade.direction === 'Short' &&
-        (trade.dailyBias !== 'Bearish' || trade.extreme !== 'Premium'))
-    )
-      return 'Longs need bullish discount; shorts need bearish premium.';
-    if (
-      [trade.zone, trade.sweep, trade.m15, trade.m1, trade.setup, trade.reason].some(
-        (v) => !v.trim(),
-      )
-    )
-      return 'Complete every cascade and narrative field.';
-    if (!['Quiet', 'Aligned'].includes(trade.news) || trade.checklist !== 'Yes')
-      return 'Complete the pre-entry checks.';
-  }
+  if (
+    trade.dailyBias !== trade.h4Bias ||
+    !['Bullish', 'Bearish'].includes(trade.dailyBias) ||
+    trade.aligned !== 'Yes'
+  )
+    return 'Daily and 4H bias must agree before entry.';
+  if (
+    (trade.direction === 'Long' &&
+      (trade.dailyBias !== 'Bullish' || trade.extreme !== 'Discount')) ||
+    (trade.direction === 'Short' && (trade.dailyBias !== 'Bearish' || trade.extreme !== 'Premium'))
+  )
+    return 'Longs need bullish discount; shorts need bearish premium.';
+  if (
+    [trade.zone, trade.sweep, trade.m15, trade.m1, trade.setup, trade.reason].some((v) => !v.trim())
+  )
+    return 'Complete every cascade and narrative field.';
+  if (!['Quiet', 'Aligned'].includes(trade.news) || trade.checklist !== 'Yes')
+    return 'Complete the pre-entry checks.';
   if (
     !audit ||
     !['1H', '15M'].includes(audit.timeframe) ||
-    (!options.allowStrategyOverride && !audit.manualEntry) ||
+    !audit.manualEntry ||
     !emotions.includes(audit.emotion)
   )
-    return options.allowStrategyOverride
-      ? 'Select the timeframe and record your emotion.'
-      : 'Select the extreme timeframe, confirm manual entry, and record your emotion.';
+    return 'Select the extreme timeframe, confirm manual entry, and record your emotion.';
   if (
     [
       trade.entry,
@@ -141,8 +161,19 @@ export function auditFailure(
     ].some((n) => !Number.isFinite(n) || n <= 0)
   )
     return 'Fill every trade value field with a positive number.';
-  if (!options.allowRiskOverride && exceedsRiskLimit(trade))
-    return 'Risk exceeds the 2% guideline.';
+  const overRiskLimit = options.allowMathOverride
+    ? exceedsDeclaredRiskLimit(trade)
+    : exceedsRiskLimit(trade);
+  if (overRiskLimit) return 'Risk exceeds the 2% guideline.';
+  if (!/^\d+(\.\d{1,2})?$/.test(audit.lotsInput))
+    return 'Standard lots must use at most two decimal places.';
+  if (
+    (trade.direction === 'Long' && (trade.stop >= trade.entry || trade.target <= trade.entry)) ||
+    (trade.direction === 'Short' && (trade.stop <= trade.entry || trade.target >= trade.entry))
+  )
+    return 'Stop and target must sit on opposite sides of entry in the trade direction.';
+  if (audit.targetPips < audit.stopPips * 2)
+    return 'Take-profit pips must be at least twice stop-loss pips.';
   if (options.allowMathOverride) return undefined;
   const risk = trade.plannedRisk!;
   const positionRisk = audit.stopPips * audit.pipValue * trade.lots;
@@ -151,21 +182,14 @@ export function auditFailure(
     Math.abs(risk - (audit.accountBalance * audit.riskPercent) / 100) > 0.010001
   )
     return 'Manual risk figures disagree. Check the risk amount, risk %, stop pips, pip value, and lots against BabyPips.';
-  if (!/^\d+(\.\d{1,2})?$/.test(audit.lotsInput) || Number(audit.lotsInput) !== trade.lots)
+  if (Number(audit.lotsInput) !== trade.lots)
     return 'Standard lots must use at most two decimal places.';
-  if (
-    (trade.direction === 'Long' && (trade.stop >= trade.entry || trade.target <= trade.entry)) ||
-    (trade.direction === 'Short' && (trade.stop <= trade.entry || trade.target >= trade.entry))
-  )
-    return 'Stop and target must sit on opposite sides of entry in the trade direction.';
   const matches = (pips: number, distance: number) =>
     Math.abs(pips - distance / audit.pipSize) <= Math.max(0.000001, pips * 1e-8);
   if (!matches(audit.stopPips, Math.abs(trade.entry - trade.stop)))
     return 'Stop-loss pips do not match the entry and stop prices using the selected pip size.';
   if (!matches(audit.targetPips, Math.abs(trade.target - trade.entry)))
     return 'Take-profit pips do not match the entry and target prices using the selected pip size.';
-  if (!options.allowStrategyOverride && audit.targetPips < audit.stopPips * 2)
-    return 'Take-profit pips must be at least twice stop-loss pips.';
   return undefined;
 }
 function isRecord(value: unknown): value is Record<string, unknown> {

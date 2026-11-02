@@ -6,7 +6,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import * as Haptics from 'expo-haptics';
 import { resolvePipSize } from '@/constants/instruments';
 import {
-  auditFailure,
+  submissionFailure,
   entryGate,
   type NewsEvent,
   type PipSetting,
@@ -322,11 +322,8 @@ export const useJournal = create<JournalState>()(
         const trades = current.trades.filter((t) => t.accountId === current.accountId);
         const gate = entryGate(account, trades, Date.now(), circuitUntil(trades));
         if (gate.locked) return gate.messages.join('\n');
-        const failure = auditFailure(trade, {
-          allowRiskOverride: true,
-          allowStrategyOverride: true,
-          allowMathOverride: true,
-        });
+        const equity = balance(current.accountId, current.trades, current.transactions);
+        const failure = submissionFailure(trade, equity);
         if (failure) return failure;
         const pipSize = resolvePipSize(trade.instrument, account.pipSettings);
         if (!pipSize || pipSize !== trade.audit?.pipSize)

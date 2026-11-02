@@ -179,7 +179,7 @@ export default function NewTrade() {
         <View className="gap-3">
           {error ? <Message text={error} /> : null}
           {overLimit ? (
-            <Text className="text-foreground text-sm">Above 2% risk · saving is allowed</Text>
+            <Text className="text-danger text-sm">Risk must be within 2% to save.</Text>
           ) : null}
           <Action
             label={saving ? 'Saving…' : 'Save to journal'}
@@ -298,10 +298,9 @@ export default function NewTrade() {
       </Section>
       <Section title="Macro & checklist">
         <Text className="text-muted">
-          Only the daily limit, circuit breaker, and session block entry. Strategy checks are
-          optional; required trade details and math must still be valid.
+          All entry requirements are mandatory. Your entered calculations are not verified.
         </Text>
-        {options('news', 'News filter · advisory', ['Quiet', 'Aligned', 'Blackout'])}
+        {options('news', 'News filter', ['Quiet', 'Aligned', 'Blackout'])}
         {options('circuit', 'Circuit breaker', ['Clear', 'Locked'])}
         {options('checklist', 'All pre-entry checks complete?', ['Yes', 'No'])}
       </Section>

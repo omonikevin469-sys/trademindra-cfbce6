@@ -248,7 +248,7 @@ export function RiskWarning({ saved = false }: { saved?: boolean }) {
       <Text className="text-foreground">
         {saved
           ? 'The risk check was recorded as not met.'
-          : 'You can still save this trade. The risk check will be recorded as not met.'}
+          : 'Reduce your declared risk to 2% or less before saving.'}
       </Text>
     </View>
   );

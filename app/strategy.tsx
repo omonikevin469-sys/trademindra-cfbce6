@@ -8,7 +8,7 @@ import { circuitLocked, useJournal } from '@/lib/journal';
 const rules = [
   [
     'Trade recording',
-    'Entry requires an open session, fewer than two trades today, and a clear circuit breaker. Other strategy rules below guide adherence reviews, not permission to save. Required trade details and math checks still apply.',
+    'All entry requirements are mandatory: open session, available daily limit, clear circuit breaker, no news blackout, complete strategy checks, and risk within 2%. Your entered calculations are saved without verification.',
   ],
   [
     'Higher-timeframe mandate',
@@ -23,8 +23,8 @@ const rules = [
     'XAUUSD is primary; EURJPY is secondary. Directory instruments use their GR-ATC pip-size defaults unless overridden for your broker in Settings. Custom instruments require a saved broker pip size. The entry window is 4:00–9:00 PM EAT, Monday–Friday. Stop looking for new entries at 9:00 PM.',
   ],
   [
-    'Risk guideline',
-    'Aim to risk no more than 2% of equity. You can record a trade above this guideline; its risk check is marked as not met. Place the stop beyond the sweep wick and never move it. Target opposing liquidity with a minimum 1:2 risk-to-reward ratio. Round position size down.',
+    'Risk limit',
+    'Declared risk must not exceed 2% of equity. Place the stop beyond the sweep wick and never move it. Target opposing liquidity with a minimum 1:2 risk-to-reward ratio. Round position size down.',
   ],
   [
     'News filter',
