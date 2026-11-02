@@ -51,7 +51,10 @@ export function Page({ children, footer }: { children: ReactNode; footer?: React
 export function Heading({ title, action }: { title: string; action?: ReactNode }) {
   return (
     <View className="flex-row flex-wrap items-center justify-between gap-3">
-      <Text className="text-foreground flex-1 text-3xl" style={{ fontFamily: 'Inter_700Bold' }}>
+      <Text
+        className="text-journal-heading flex-1 text-3xl"
+        style={{ fontFamily: 'Inter_700Bold', textDecorationLine: 'underline' }}
+      >
         {title}
       </Text>
       {action}
@@ -71,8 +74,8 @@ export function Section({
     <View className="gap-3">
       <View className="flex-row items-center justify-between gap-2">
         <Text
-          className="text-foreground flex-1 text-lg"
-          style={{ fontFamily: 'Inter_600SemiBold' }}
+          className="text-journal-heading flex-1 text-lg"
+          style={{ fontFamily: 'Inter_700Bold', textDecorationLine: 'underline' }}
         >
           {title}
         </Text>

@@ -1,5 +1,5 @@
 import { transform } from 'lightningcss';
-import cssTree from 'css-tree';
+import * as cssTree from 'css-tree';
 import { globSync, readFileSync } from 'node:fs';
 
 // Lints CSS with two parsers, both already installed (no new deps):
@@ -27,7 +27,13 @@ for (const file of globSync('**/*.css', { exclude: ['**/node_modules/**'] })) {
 
   cssTree.parse(code.toString(), {
     positions: true,
-    onParseError: (e) => report(`${file}:${e.line}:${e.column}  [syntax] ${e.message}`),
+    onParseError: (e, fallbackNode) => {
+      // Null marks a speculative grammar attempt (e.g. nested @supports),
+      // not syntax recovery. Report errors that actually produce a recovery node.
+      if (fallbackNode !== null) {
+        report(`${file}:${e.line}:${e.column}  [syntax] ${e.message}`);
+      }
+    },
   });
 }
 
