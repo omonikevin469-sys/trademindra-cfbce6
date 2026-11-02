@@ -194,7 +194,7 @@ void test('risk override does not bypass positive inputs, bias, stop direction o
     /at least twice/,
   );
 });
-void test('session, news, daily limit and loss break still lock entry', () => {
+void test('only session, daily limit and loss break lock entry; saved news does not', () => {
   const account: Account = { id: 'account', name: 'Test account' };
   const now = Date.parse('2026-11-02T14:00:00Z');
   assert.equal(entryGate(account, [], now, 0).locked, false);
@@ -210,7 +210,7 @@ void test('session, news, daily limit and loss break still lock entry', () => {
       now,
       0,
     ).locked,
-    true,
+    false,
   );
   const trade: Trade = {
     ...draft(),
@@ -218,5 +218,48 @@ void test('session, news, daily limit and loss break still lock entry', () => {
     accountId: account.id,
     date: new Date(now).toISOString(),
   };
+  assert.equal(entryGate(account, [trade], now, 0).locked, false);
   assert.equal(entryGate(account, [trade, { ...trade, id: 'second' }], now, 0).locked, true);
+});
+void test('submission allows strategy deviations while strict analytics still rejects each one', () => {
+  const base = draft(2);
+  assert.ok(base.audit);
+  const cases: TradeDraft[] = [
+    draft(3),
+    { ...base, h4Bias: 'Bearish' },
+    { ...base, dailyBias: 'Ranging', h4Bias: 'Ranging' },
+    { ...base, aligned: 'No' },
+    { ...base, extreme: 'Premium' },
+    { ...base, zone: '', sweep: '', m15: '', m1: '', setup: '', reason: '' },
+    { ...base, news: 'Blackout' },
+    { ...base, checklist: 'No' },
+    { ...base, audit: { ...base.audit, manualEntry: false } },
+    { ...base, target: 1.115, audit: { ...base.audit, targetPips: 150 } },
+  ];
+  for (const trade of cases) {
+    assert.equal(
+      auditFailure(trade, { allowRiskOverride: true, allowStrategyOverride: true }),
+      undefined,
+    );
+    assert.ok(auditFailure(trade), 'Strict adherence must still flag the deviation');
+  }
+});
+void test('submission still requires a clear manual circuit breaker and valid math', () => {
+  const options = { allowRiskOverride: true, allowStrategyOverride: true };
+  const base = draft();
+  assert.ok(base.audit);
+  for (const circuit of ['Locked', '']) {
+    assert.match(auditFailure({ ...base, circuit }, options) ?? '', /circuit breaker/);
+  }
+  assert.match(auditFailure({ ...base, instrument: '' }, options) ?? '', /instrument/);
+  assert.match(auditFailure({ ...base, lots: 0 }, options) ?? '', /positive number/);
+  assert.match(
+    auditFailure({ ...base, plannedRisk: 400 }, options) ?? '',
+    /Manual risk figures disagree/,
+  );
+  assert.match(auditFailure({ ...base, stop: 1.11 }, options) ?? '', /opposite sides/);
+  assert.match(
+    auditFailure({ ...base, target: 1.115 }, options) ?? '',
+    /Take-profit pips do not match/,
+  );
 });

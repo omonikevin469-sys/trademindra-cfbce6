@@ -45,7 +45,7 @@ export function sessionGate(now: number) {
 }
 export const validNewsTime = (time: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(time);
 export function entryGate(
-  account: Account | undefined,
+  _account: Account | undefined,
   trades: Trade[],
   now: number,
   lossUntil: number,
@@ -56,20 +56,6 @@ export function entryGate(
     messages.push(
       `Session opens in ${countdown(session.nextOpen - now)} · Mon–Fri, 16:00–21:00 EAT`,
     );
-  const windows = (account?.newsEvents ?? [])
-    .map((event) => {
-      const time = new Date(`${event.date}T${event.time}:00+03:00`).getTime();
-      return { start: time - 900000, end: time + 900000 };
-    })
-    .sort((a, b) => a.start - b.start);
-  let blackoutEnd = 0;
-  for (const window of windows)
-    if (
-      (now >= window.start && now < window.end) ||
-      (blackoutEnd > now && window.start <= blackoutEnd)
-    )
-      blackoutEnd = Math.max(blackoutEnd, window.end);
-  if (blackoutEnd > now) messages.push(`News blackout ends in ${countdown(blackoutEnd - now)}`);
   if (lossUntil > now) messages.push(`Two-loss break ends in ${countdown(lossUntil - now)}`);
   if (trades.filter((trade) => eatDateKey(trade.date) === eatDateKey(now)).length >= 2)
     messages.push('The two-trade EAT daily limit has been reached.');
@@ -96,39 +82,43 @@ export function exceedsRiskLimit(
 }
 export function auditFailure(
   trade: TradeDraft,
-  options: { allowRiskOverride?: boolean } = {},
+  options: { allowRiskOverride?: boolean; allowStrategyOverride?: boolean } = {},
 ): string | undefined {
   const audit = trade.audit;
   if (!trade.instrument.trim()) return 'Enter the instrument.';
-  if (
-    trade.dailyBias !== trade.h4Bias ||
-    !['Bullish', 'Bearish'].includes(trade.dailyBias) ||
-    trade.aligned !== 'Yes'
-  )
-    return 'Daily and 4H bias must agree before entry.';
-  if (
-    (trade.direction === 'Long' &&
-      (trade.dailyBias !== 'Bullish' || trade.extreme !== 'Discount')) ||
-    (trade.direction === 'Short' && (trade.dailyBias !== 'Bearish' || trade.extreme !== 'Premium'))
-  )
-    return 'Longs need bullish discount; shorts need bearish premium.';
-  if (
-    [trade.zone, trade.sweep, trade.m15, trade.m1, trade.setup, trade.reason].some((v) => !v.trim())
-  )
-    return 'Complete every cascade and narrative field.';
-  if (
-    !['Quiet', 'Aligned'].includes(trade.news) ||
-    trade.circuit !== 'Clear' ||
-    trade.checklist !== 'Yes'
-  )
-    return 'Complete the pre-entry checks and clear the manual lockouts.';
+  if (trade.circuit !== 'Clear') return 'Clear the circuit breaker before recording a trade.';
+  if (!options.allowStrategyOverride) {
+    if (
+      trade.dailyBias !== trade.h4Bias ||
+      !['Bullish', 'Bearish'].includes(trade.dailyBias) ||
+      trade.aligned !== 'Yes'
+    )
+      return 'Daily and 4H bias must agree before entry.';
+    if (
+      (trade.direction === 'Long' &&
+        (trade.dailyBias !== 'Bullish' || trade.extreme !== 'Discount')) ||
+      (trade.direction === 'Short' &&
+        (trade.dailyBias !== 'Bearish' || trade.extreme !== 'Premium'))
+    )
+      return 'Longs need bullish discount; shorts need bearish premium.';
+    if (
+      [trade.zone, trade.sweep, trade.m15, trade.m1, trade.setup, trade.reason].some(
+        (v) => !v.trim(),
+      )
+    )
+      return 'Complete every cascade and narrative field.';
+    if (!['Quiet', 'Aligned'].includes(trade.news) || trade.checklist !== 'Yes')
+      return 'Complete the pre-entry checks.';
+  }
   if (
     !audit ||
     !['1H', '15M'].includes(audit.timeframe) ||
-    !audit.manualEntry ||
+    (!options.allowStrategyOverride && !audit.manualEntry) ||
     !emotions.includes(audit.emotion)
   )
-    return 'Select the extreme timeframe, confirm manual entry, and record your emotion.';
+    return options.allowStrategyOverride
+      ? 'Select the timeframe and record your emotion.'
+      : 'Select the extreme timeframe, confirm manual entry, and record your emotion.';
   if (
     [
       trade.entry,
@@ -168,7 +158,7 @@ export function auditFailure(
     return 'Stop-loss pips do not match the entry and stop prices using the selected pip size.';
   if (!matches(audit.targetPips, Math.abs(trade.target - trade.entry)))
     return 'Take-profit pips do not match the entry and target prices using the selected pip size.';
-  if (audit.targetPips < audit.stopPips * 2)
+  if (!options.allowStrategyOverride && audit.targetPips < audit.stopPips * 2)
     return 'Take-profit pips must be at least twice stop-loss pips.';
   return undefined;
 }

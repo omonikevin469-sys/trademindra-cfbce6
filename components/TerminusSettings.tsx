@@ -114,8 +114,7 @@ export function TerminusSettings() {
         />
         <Field label="Expected macro reaction" value={expected} onChange={setExpected} multiline />
         <Text className="text-muted">
-          Trading locks 15 minutes before and after each saved event. Saved events cannot be removed
-          to bypass a blackout.
+          Saved news events are recorded with your trades and do not block entry.
         </Text>
         <Action
           label="Save today’s news"

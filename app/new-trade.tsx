@@ -304,7 +304,11 @@ export default function NewTrade() {
         />
       </Section>
       <Section title="Macro & checklist">
-        {options('news', 'News filter', ['Quiet', 'Aligned', 'Blackout'])}
+        <Text className="text-muted">
+          Only the daily limit, circuit breaker, and session block entry. Strategy checks are
+          optional; required trade details and math must still be valid.
+        </Text>
+        {options('news', 'News filter · advisory', ['Quiet', 'Aligned', 'Blackout'])}
         {options('circuit', 'Circuit breaker', ['Clear', 'Locked'])}
         {options('checklist', 'All pre-entry checks complete?', ['Yes', 'No'])}
       </Section>

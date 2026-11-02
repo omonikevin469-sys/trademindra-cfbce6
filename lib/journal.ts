@@ -324,11 +324,12 @@ export const useJournal = create<JournalState>()(
         const trades = current.trades.filter((t) => t.accountId === current.accountId);
         const gate = entryGate(account, trades, Date.now(), circuitUntil(trades));
         if (gate.locked) return gate.messages.join('\n');
-        const failure = auditFailure(trade, { allowRiskOverride: true });
+        const failure = auditFailure(trade, {
+          allowRiskOverride: true,
+          allowStrategyOverride: true,
+        });
         if (failure) return failure;
         const equity = balance(current.accountId, current.trades, current.transactions);
-        if (equity <= 0)
-          return 'Update your account balance to a positive amount before recording a trade.';
         const pipSize = resolvePipSize(trade.instrument, account.pipSettings);
         if (!pipSize || pipSize !== trade.audit?.pipSize)
           return 'The instrument’s pip size changed. Check the current pip size before saving.';
@@ -342,7 +343,12 @@ export const useJournal = create<JournalState>()(
                 ...trade.audit!,
                 checkedAt: date,
                 newsEvents: (account.newsEvents ?? []).map((event) => ({ ...event })),
-                results: auditLabels.filter((label) => label !== 'Risk within 2%' || !overLimit),
+                results: auditLabels.filter((label) => {
+                  if (label === 'Risk within 2%') return !overLimit;
+                  if (label === 'Target is at least 2× stop')
+                    return trade.audit!.targetPips >= trade.audit!.stopPips * 2;
+                  return true;
+                }),
               },
               id: uid(),
               date,

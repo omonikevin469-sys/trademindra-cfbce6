@@ -7,6 +7,10 @@ import { goBackOrReplace } from '@/lib/navigation';
 import { circuitLocked, useJournal } from '@/lib/journal';
 const rules = [
   [
+    'Trade recording',
+    'Entry requires an open session, fewer than two trades today, and a clear circuit breaker. Other strategy rules below guide adherence reviews, not permission to save. Required trade details and math checks still apply.',
+  ],
+  [
     'Higher-timeframe mandate',
     'Daily and 4H must agree. Bullish bias permits discount-only longs. Bearish bias permits premium-only shorts. Never trade equilibrium or the middle of the range.',
   ],
