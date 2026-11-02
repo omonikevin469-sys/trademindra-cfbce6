@@ -244,22 +244,33 @@ void test('submission allows strategy deviations while strict analytics still re
     assert.ok(auditFailure(trade), 'Strict adherence must still flag the deviation');
   }
 });
-void test('submission still requires a clear manual circuit breaker and valid math', () => {
-  const options = { allowRiskOverride: true, allowStrategyOverride: true };
+void test('submission still requires a clear circuit breaker and complete numeric inputs', () => {
+  const options = { allowRiskOverride: true, allowStrategyOverride: true, allowMathOverride: true };
   const base = draft();
   assert.ok(base.audit);
   for (const circuit of ['Locked', '']) {
     assert.match(auditFailure({ ...base, circuit }, options) ?? '', /circuit breaker/);
   }
   assert.match(auditFailure({ ...base, instrument: '' }, options) ?? '', /instrument/);
-  assert.match(auditFailure({ ...base, lots: 0 }, options) ?? '', /positive number/);
-  assert.match(
-    auditFailure({ ...base, plannedRisk: 400 }, options) ?? '',
-    /Manual risk figures disagree/,
-  );
-  assert.match(auditFailure({ ...base, stop: 1.11 }, options) ?? '', /opposite sides/);
-  assert.match(
-    auditFailure({ ...base, target: 1.115 }, options) ?? '',
-    /Take-profit pips do not match/,
-  );
+  for (const lots of [0, -1, NaN, Infinity]) {
+    assert.match(auditFailure({ ...base, lots }, options) ?? '', /positive number/);
+  }
+});
+void test('submission accepts trader values without comparing risk, prices, pips or lot precision', () => {
+  const base = draft(2);
+  assert.ok(base.audit);
+  const options = { allowRiskOverride: true, allowStrategyOverride: true, allowMathOverride: true };
+  const cases: TradeDraft[] = [
+    { ...base, plannedRisk: 400 },
+    { ...base, stop: 1.11 },
+    { ...base, target: 1.08 },
+    { ...base, audit: { ...base.audit, stopPips: 37, targetPips: 19 } },
+    { ...base, lots: 0.12345, audit: { ...base.audit, lotsInput: '0.12345', units: 987 } },
+  ];
+  for (const trade of cases) {
+    const original = structuredClone(trade);
+    assert.equal(auditFailure(trade, options), undefined);
+    assert.deepEqual(trade, original, 'Validation must not recalculate entered values');
+    assert.ok(auditFailure(trade), 'Strict analytics remains separate from submission');
+  }
 });

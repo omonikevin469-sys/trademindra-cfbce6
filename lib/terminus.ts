@@ -19,6 +19,7 @@ export type TradeAudit = {
   lotsInput: string;
   newsEvents: NewsEvent[];
   results: string[];
+  mathVerified?: boolean;
 };
 export const auditLabels = [
   'Risk within 2%',
@@ -82,7 +83,11 @@ export function exceedsRiskLimit(
 }
 export function auditFailure(
   trade: TradeDraft,
-  options: { allowRiskOverride?: boolean; allowStrategyOverride?: boolean } = {},
+  options: {
+    allowRiskOverride?: boolean;
+    allowStrategyOverride?: boolean;
+    allowMathOverride?: boolean;
+  } = {},
 ): string | undefined {
   const audit = trade.audit;
   if (!trade.instrument.trim()) return 'Enter the instrument.';
@@ -135,11 +140,12 @@ export function auditFailure(
       audit.units,
     ].some((n) => !Number.isFinite(n) || n <= 0)
   )
-    return 'Fill every manual math field with a positive number.';
-  const risk = trade.plannedRisk!;
-  const positionRisk = audit.stopPips * audit.pipValue * trade.lots;
+    return 'Fill every trade value field with a positive number.';
   if (!options.allowRiskOverride && exceedsRiskLimit(trade))
     return 'Risk exceeds the 2% guideline.';
+  if (options.allowMathOverride) return undefined;
+  const risk = trade.plannedRisk!;
+  const positionRisk = audit.stopPips * audit.pipValue * trade.lots;
   if (
     Math.abs(risk - positionRisk) > 0.010001 ||
     Math.abs(risk - (audit.accountBalance * audit.riskPercent) / 100) > 0.010001
@@ -186,6 +192,7 @@ export function isTradeAudit(value: unknown): value is TradeAudit {
     ].every((key) => typeof a[key] === 'number' && Number.isFinite(a[key]) && a[key] > 0) &&
     Array.isArray(a.results) &&
     a.results.every((v) => typeof v === 'string') &&
+    (a.mathVerified === undefined || typeof a.mathVerified === 'boolean') &&
     Array.isArray(a.newsEvents) &&
     a.newsEvents.every(isNewsEvent)
   );

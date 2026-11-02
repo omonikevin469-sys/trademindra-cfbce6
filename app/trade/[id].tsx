@@ -113,7 +113,12 @@ export default function TradeDetails() {
               ['Extreme timeframe', `${trade.extreme} · ${trade.audit.timeframe}`],
               ['Cascade', `${trade.sweep}\n${trade.reason}\n${trade.m15}\n${trade.m1}`],
               ['Manual entry', trade.audit.manualEntry ? 'Yes' : 'No'],
-              ['Math audits', `${trade.audit.results.length} of 5 passed`],
+              [
+                'Math audits',
+                trade.audit.mathVerified === false
+                  ? 'Not checked'
+                  : `${trade.audit.results.length} of 5 passed`,
+              ],
               ['Emotion', trade.audit.emotion],
             ].map(([label, value]) => (
               <View key={label} className="border-border gap-1 border-b pb-3">
@@ -130,21 +135,30 @@ export default function TradeDetails() {
               ['Broker pip size', String(trade.audit.pipSize)],
               ['Pip value per standard lot', `${money(trade.audit.pipValue)} / pip`],
               ['Units / standard lots', `${trade.audit.units} / ${trade.audit.lotsInput}`],
-              ['Checked at', `${eatDisplay(trade.audit.checkedAt)} EAT`],
+              [
+                trade.audit.mathVerified === false ? 'Recorded at' : 'Checked at',
+                `${eatDisplay(trade.audit.checkedAt)} EAT`,
+              ],
             ].map(([label, value]) => (
               <View key={label} className="gap-1">
                 <Text className="text-muted">{label}</Text>
                 <Text className="text-foreground">{value}</Text>
               </View>
             ))}
-            {trade.audit.results.map((result) => (
-              <Text key={result} className="text-foreground">
-                {result} · Passed
-              </Text>
-            ))}
-            {!trade.audit.results.includes('Risk within 2%') ? (
-              <Text className="text-foreground">Risk within 2% · Not met</Text>
-            ) : null}
+            {trade.audit.mathVerified === false ? (
+              <Text className="text-foreground">Trader-entered values · Not checked</Text>
+            ) : (
+              <>
+                {trade.audit.results.map((result) => (
+                  <Text key={result} className="text-foreground">
+                    {result} · Passed
+                  </Text>
+                ))}
+                {!trade.audit.results.includes('Risk within 2%') ? (
+                  <Text className="text-foreground">Risk within 2% · Not met</Text>
+                ) : null}
+              </>
+            )}
           </Section>
           {trade.audit.newsEvents.length ? (
             <Section title="Manual news at entry">

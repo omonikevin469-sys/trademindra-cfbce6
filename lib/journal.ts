@@ -7,9 +7,7 @@ import * as Haptics from 'expo-haptics';
 import { resolvePipSize } from '@/constants/instruments';
 import {
   auditFailure,
-  auditLabels,
   entryGate,
-  exceedsRiskLimit,
   type NewsEvent,
   type PipSetting,
   type TradeAudit,
@@ -327,14 +325,13 @@ export const useJournal = create<JournalState>()(
         const failure = auditFailure(trade, {
           allowRiskOverride: true,
           allowStrategyOverride: true,
+          allowMathOverride: true,
         });
         if (failure) return failure;
-        const equity = balance(current.accountId, current.trades, current.transactions);
         const pipSize = resolvePipSize(trade.instrument, account.pipSettings);
         if (!pipSize || pipSize !== trade.audit?.pipSize)
           return 'The instrument’s pip size changed. Check the current pip size before saving.';
         const date = new Date().toISOString();
-        const overLimit = exceedsRiskLimit(trade, equity);
         set((s) => ({
           trades: [
             {
@@ -343,12 +340,8 @@ export const useJournal = create<JournalState>()(
                 ...trade.audit!,
                 checkedAt: date,
                 newsEvents: (account.newsEvents ?? []).map((event) => ({ ...event })),
-                results: auditLabels.filter((label) => {
-                  if (label === 'Risk within 2%') return !overLimit;
-                  if (label === 'Target is at least 2× stop')
-                    return trade.audit!.targetPips >= trade.audit!.stopPips * 2;
-                  return true;
-                }),
+                results: [],
+                mathVerified: false,
               },
               id: uid(),
               date,

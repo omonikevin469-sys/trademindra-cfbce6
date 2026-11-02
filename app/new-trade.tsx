@@ -74,14 +74,7 @@ export default function NewTrade() {
   const symbol = draft.instrument.trim().toUpperCase();
   const pipSize = resolvePipSize(symbol, account?.pipSettings);
   const pipOverride = account?.pipSettings?.some((p) => p.instrument === symbol);
-  const riskAmount = Number(draft.plannedRisk);
-  const recordedBalance = Number(draft.accountBalance);
-  const positionRisk = Number(draft.stopPips) * Number(draft.pipValue) * Number(draft.lots);
-  const overLimit =
-    Number(draft.riskPercent) > 2 ||
-    (recordedBalance > 0 &&
-      Math.max(riskAmount, positionRisk) > recordedBalance * 0.02 + 0.000001) ||
-    (equity > 0 && riskAmount > equity * 0.02 + 0.000001);
+  const overLimit = Number(draft.riskPercent) > 2;
   const fail = (text: string) => {
     setError(text);
     errorFeedback();
@@ -112,7 +105,7 @@ export default function NewTrade() {
           !draft[key].trim() || !Number.isFinite(Number(draft[key])) || Number(draft[key]) <= 0,
       )
     )
-      return fail('Fill every manual math field with a positive number.');
+      return fail('Fill every trade value field with a positive number.');
     const audit: TradeAudit = {
       version: 1,
       checkedAt: new Date(now).toISOString(),
@@ -254,10 +247,10 @@ export default function NewTrade() {
           />
         </View>
       </Section>
-      <Section title="6. Manual math audit">
+      <Section title="6. Trade values">
         <Text className="text-muted">
-          Enter your manual BabyPips figures. Pip size comes from your instrument or broker
-          override. Pip value is USD per pip for one standard lot.
+          Enter your trade values. They are saved without checking the calculations. Pip value is
+          USD per pip for one standard lot.
         </Text>
         <Text className="text-foreground">Pip size: {pipSize ?? 'Select an instrument'}</Text>
         <Action label="Manage pip sizes" secondary onPress={() => router.push('/settings')} />
