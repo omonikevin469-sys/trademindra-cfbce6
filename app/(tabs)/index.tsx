@@ -6,6 +6,7 @@ import { router } from 'expo-router';
 import { Button, Surface, useThemeColor } from 'heroui-native';
 import { ArrowUpRight, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react-native';
 import { BalanceControl } from '@/components/BalanceControl';
+import { BalanceGraph } from '@/components/BalanceGraph';
 import { Action, Empty, Heading, Metric, Page, Section, TradeRow } from '@/components/JournalUI';
 import {
   balance,
@@ -85,6 +86,7 @@ export default function Desk() {
           <Metric label="EAT session" value={gate.session.open ? 'Open' : 'Closed'} />
         </View>
       </View>
+      <BalanceGraph accountId={state.accountId} transactions={state.transactions} />
       <Section title="Forex sessions">
         <Surface className="gap-4 rounded-2xl p-4">
           {forexSessions.map(({ name, timeZone }, index) => {
@@ -106,7 +108,10 @@ export default function Desk() {
                   {session.open ? 'Closes' : 'Opens'} in {session.countdown}
                 </Text>
                 <Text className="text-muted text-sm" style={{ fontVariant: ['tabular-nums'] }}>
-                  {session.localTime} local · Weekdays 08:00–17:00
+                  {session.localTime} local ·{' '}
+                  {name === 'New York'
+                    ? 'Weekdays 8 AM local–9 PM EAT'
+                    : 'Weekdays 8 AM–5 PM local'}
                 </Text>
               </View>
             );

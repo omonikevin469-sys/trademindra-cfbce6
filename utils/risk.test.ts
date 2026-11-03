@@ -13,12 +13,13 @@ import {
   type ManualTradeDraft,
   type Outcome,
 } from '@/lib/manualTrade';
-import type { Account, Trade } from '@/lib/journal';
+import type { Account, Trade, Transaction } from '@/lib/journal';
+import { balanceHistory, winRates, extremeTimeframe, recordedSession } from '@/lib/performance';
 import { instruments, resolvePipSize } from '@/constants/instruments';
-void test('forex sessions open at 08:00 and close at 17:00 in city local time', () => {
+void test('forex sessions preserve local openings and New York closes at 21:00 EAT', () => {
   for (const [zone, opening, closing] of [
     ['Europe/London', '2026-11-03T08:00:00Z', '2026-11-03T17:00:00Z'],
-    ['America/New_York', '2026-11-03T13:00:00Z', '2026-11-03T22:00:00Z'],
+    ['America/New_York', '2026-11-03T13:00:00Z', '2026-11-03T18:00:00Z'],
   ] as const) {
     const start = Date.parse(opening);
     const end = Date.parse(closing);
@@ -27,7 +28,7 @@ void test('forex sessions open at 08:00 and close at 17:00 in city local time', 
     assert.equal(forexSessionStatus(start, zone).open, true);
     assert.equal(forexSessionStatus(start, zone).nextChange, end);
     assert.equal(forexSessionStatus(start, zone).localTime, '08:00:00');
-    assert.equal(forexSessionStatus(start, zone).countdown, '09:00:00');
+    assert.equal(forexSessionStatus(start, zone).countdown, sessionCountdown(end - start));
     assert.equal(forexSessionStatus(end - 1000, zone).open, true);
     assert.equal(forexSessionStatus(end, zone).open, false);
     assert.equal(forexSessionStatus(end, zone).nextChange, start + 86400000);
@@ -37,8 +38,8 @@ void test('forex weekend countdown follows spring and autumn DST transitions', (
   for (const [zone, fridayClose, mondayOpen] of [
     ['Europe/London', '2026-03-27T17:00:00Z', '2026-03-30T07:00:00Z'],
     ['Europe/London', '2026-10-23T16:00:00Z', '2026-10-26T08:00:00Z'],
-    ['America/New_York', '2026-03-06T22:00:00Z', '2026-03-09T12:00:00Z'],
-    ['America/New_York', '2026-10-30T21:00:00Z', '2026-11-02T13:00:00Z'],
+    ['America/New_York', '2026-03-06T18:00:00Z', '2026-03-09T12:00:00Z'],
+    ['America/New_York', '2026-10-30T18:00:00Z', '2026-11-02T13:00:00Z'],
   ] as const) {
     const close = Date.parse(fridayClose);
     const nextOpen = Date.parse(mondayOpen);
@@ -48,7 +49,10 @@ void test('forex weekend countdown follows spring and autumn DST transitions', (
       assert.equal(status.nextChange, nextOpen);
     }
     assert.equal(forexSessionStatus(nextOpen, zone).open, true);
-    assert.equal(forexSessionStatus(nextOpen, zone).countdown, '09:00:00');
+    assert.equal(
+      forexSessionStatus(nextOpen, zone).countdown,
+      zone === 'Europe/London' ? '09:00:00' : mondayOpen.includes('T12:') ? '06:00:00' : '05:00:00',
+    );
   }
 });
 void test('London and New York independently track mismatched DST weeks', () => {
@@ -67,8 +71,8 @@ void test('session countdown uses elapsed wall time and supports weekend duratio
   assert.equal(sessionCountdown(63 * 3600000), '63:00:00');
   const time = Date.parse('2026-11-03T13:00:00Z');
   const first = forexSessionStatus(time, 'America/New_York');
-  assert.equal(forexSessionStatus(time + 125000, 'America/New_York').countdown, '08:57:55');
-  assert.equal(first.countdown, '09:00:00');
+  assert.equal(forexSessionStatus(time + 125000, 'America/New_York').countdown, '04:57:55');
+  assert.equal(first.countdown, '05:00:00');
 });
 const account: Account = { id: 'kevin', name: 'Trading account' };
 const now = Date.parse('2026-11-03T14:00:00Z');
@@ -76,6 +80,7 @@ function draft(): ManualTradeDraft {
   return {
     recordType: 'manual',
     instrument: 'XAUUSD',
+    session: 'New York',
     direction: 'Long',
     dailyBias: 'Bullish',
     h4Bias: 'Bearish',
@@ -265,6 +270,78 @@ void test('historical export keeps trader inputs but strips calculated audit obj
   assert.equal('audit' in exported, false);
   assert.equal(exported.riskPercent, 3);
   assert.equal(exported.entry, 2500);
+});
+void test('session capture exports unchanged and old manual trades remain readable', () => {
+  const trade = record('Win');
+  assert.equal(rawTradeExport(trade).session, 'New York');
+  assert.ok(isManualTrade({ ...trade, session: undefined }));
+  assert.equal(recordedSession({ ...trade, session: undefined }), 'Not recorded');
+});
+void test('New York closes at 21:00 EAT in summer and winter', () => {
+  for (const date of ['2026-07-14', '2026-11-03']) {
+    const closing = Date.parse(`${date}T18:00:00Z`);
+    assert.equal(forexSessionStatus(closing - 1000, 'America/New_York').open, true);
+    assert.equal(forexSessionStatus(closing - 1000, 'America/New_York').countdown, '00:00:01');
+    assert.equal(forexSessionStatus(closing, 'America/New_York').open, false);
+  }
+});
+void test('session and timeframe win rates exclude open and breakeven outcomes', () => {
+  const trades = [
+    record('Win'),
+    record('Loss'),
+    record('Breakeven'),
+    record('Open'),
+    { ...record('Win'), session: 'London', timeframe: '1H' },
+  ];
+  const sessions = winRates(trades, recordedSession, ['London', 'New York']);
+  assert.equal(sessions.find((row) => row.label === 'New York')?.rate, 50);
+  assert.equal(sessions.find((row) => row.label === 'New York')?.total, 4);
+  assert.equal(sessions.find((row) => row.label === 'London')?.rate, 100);
+  const timeframes = winRates(trades, extremeTimeframe, ['1H', '15M']);
+  assert.equal(timeframes.find((row) => row.label === '15M')?.rate, 50);
+  assert.equal(timeframes.find((row) => row.label === '1H')?.rate, 100);
+  assert.equal(winRates([], recordedSession, ['London'])[0].rate, null);
+  assert.equal(winRates([record('Open')], recordedSession, ['New York'])[0].rate, null);
+  assert.equal(extremeTimeframe({ ...record('Win'), timeframe: undefined }), 'Not recorded');
+});
+void test('balance history is account scoped, ordered and keeps opening balance across periods', () => {
+  const transactions: Transaction[] = [
+    { id: 'b', accountId: 'other', date: '2026-11-03T12:00:00Z', amount: 9999, note: '' },
+    { id: 'c', accountId: 'kevin', date: '2026-11-03T12:00:00Z', amount: -100, note: '' },
+    { id: 'a', accountId: 'kevin', date: '2026-10-31T12:00:00Z', amount: 1000, note: '' },
+    { id: 'd', accountId: 'kevin', date: '2026-12-01T00:00:00Z', amount: 500, note: '' },
+  ];
+  const window = { start: new Date('2026-11-01T00:00:00Z'), end: new Date('2026-12-01T00:00:00Z') };
+  const history = balanceHistory(transactions, 'kevin', window, now);
+  assert.equal(history.points[0].amount, 1000);
+  assert.equal(history.points.at(-1)?.amount, 900);
+  assert.equal(history.updates, 1);
+  assert.equal(balanceHistory(transactions, 'other', window, now).points.at(-1)?.amount, 9999);
+  const empty = balanceHistory(transactions, 'empty', window, now);
+  assert.equal(empty.points.length, 2);
+  assert.ok(empty.points.every((point) => point.amount === 0));
+  const quiet = balanceHistory(
+    transactions,
+    'kevin',
+    { start: new Date('2026-11-04T00:00:00Z'), end: new Date('2026-11-05T00:00:00Z') },
+    now,
+  );
+  assert.equal(quiet.updates, 0);
+  assert.ok(quiet.points.every((point) => point.amount === 900));
+});
+void test('performance breakdowns stay separate for each sub-account', () => {
+  const trades = [record('Win'), { ...record('Loss'), accountId: 'other' }];
+  for (const [id, rate] of [
+    ['kevin', 100],
+    ['other', 0],
+  ] as const) {
+    const rows = winRates(
+      trades.filter((trade) => trade.accountId === id),
+      recordedSession,
+      ['New York'],
+    );
+    assert.equal(rows[0].rate, rate);
+  }
 });
 void test('existing instrument directory and broker preferences remain available', () => {
   assert.equal(instruments.length, 39);

@@ -19,6 +19,7 @@ const initial: ManualTradeDraft = {
   recordType: 'manual',
   instrument: '',
   direction: 'Long',
+  session: '',
   dailyBias: '',
   h4Bias: '',
   extreme: '',
@@ -83,7 +84,7 @@ export default function NewTrade() {
     />
   );
   const select = (
-    key: 'direction' | 'dailyBias' | 'h4Bias' | 'extreme' | 'timeframe',
+    key: 'direction' | 'session' | 'dailyBias' | 'h4Bias' | 'extreme' | 'timeframe',
     label: string,
     options: string[],
   ) => (
@@ -131,6 +132,7 @@ export default function NewTrade() {
           overrides={account.pipSettings}
         />
         {select('direction', 'Direction', ['Long', 'Short'])}
+        {select('session', 'Trading session', ['London', 'New York'])}
       </Section>
       <Section title="Bias and extreme">
         {select('dailyBias', '1D bias', ['Bullish', 'Bearish', 'Ranging'])}

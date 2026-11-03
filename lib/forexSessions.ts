@@ -48,13 +48,19 @@ export function forexSessionStatus(now: number, timeZone: ForexTimeZone) {
   const local = localDate(now, timeZone);
   const weekday = local.getUTCDay();
   const hour = local.getUTCHours();
-  const open = weekday > 0 && weekday < 6 && hour >= 8 && hour < 17;
+  const opening = localHourInstant(local, 8, timeZone);
+  // New York's trading close is 21:00 EAT (18:00 UTC), independent of US DST.
+  const closing =
+    timeZone === 'America/New_York'
+      ? Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate(), 18)
+      : localHourInstant(local, 17, timeZone);
+  const open = weekday > 0 && weekday < 6 && now >= opening && now < closing;
   let nextChange: number;
   if (open) {
-    nextChange = localHourInstant(local, 17, timeZone);
+    nextChange = closing;
   } else {
     const nextDay = new Date(local);
-    if (weekday === 0 || weekday === 6 || hour >= 17) {
+    if (weekday === 0 || weekday === 6 || now >= closing) {
       do {
         nextDay.setUTCDate(nextDay.getUTCDate() + 1);
       } while (nextDay.getUTCDay() === 0 || nextDay.getUTCDay() === 6);

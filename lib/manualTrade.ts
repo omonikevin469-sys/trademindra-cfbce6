@@ -6,6 +6,7 @@ export type Outcome = (typeof outcomes)[number];
 export const manualFields = [
   ['instrument', 'Instrument'],
   ['direction', 'Direction'],
+  ['session', 'Trading session'],
   ['dailyBias', '1D bias'],
   ['h4Bias', '4H bias'],
   ['extreme', 'Extreme zone'],
@@ -27,6 +28,7 @@ export type ManualTradeDraft = {
   recordType: 'manual';
   instrument: string;
   direction: string;
+  session: string;
   dailyBias: string;
   h4Bias: string;
   extreme: string;
@@ -129,9 +131,13 @@ export function isManualTrade(value: unknown): boolean {
   const record = value;
   return (
     record.recordType === 'manual' &&
-    ['id', 'accountId', 'date', ...manualFields.map(([key]) => key)].every(
-      (key) => typeof record[key] === 'string',
-    ) &&
+    [
+      'id',
+      'accountId',
+      'date',
+      ...manualFields.filter(([key]) => key !== 'session').map(([key]) => key),
+    ].every((key) => typeof record[key] === 'string') &&
+    (record.session === undefined || typeof record.session === 'string') &&
     typeof record.manualEntry === 'boolean' &&
     outcomes.some((outcome) => outcome === record.result) &&
     record.audit === undefined &&

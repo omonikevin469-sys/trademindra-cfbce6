@@ -4,7 +4,10 @@ import { router } from 'expo-router';
 import { Text } from '@/components/JournalText';
 import { Empty, Heading, Metric, Page, Section } from '@/components/JournalUI';
 import { PeriodControl } from '@/components/PeriodControl';
-import { withinPeriod, type Period } from '@/lib/periods';
+import { withinPeriod, periodWindow, type Period } from '@/lib/periods';
+import { BalanceGraph } from '@/components/BalanceGraph';
+import { WinRateBreakdown } from '@/components/WinRateBreakdown';
+import { winRates, recordedSession, extremeTimeframe } from '@/lib/performance';
 import { useJournal } from '@/lib/journal';
 import { emotions } from '@/lib/terminus';
 import { outcomes, tradeOutcome } from '@/lib/manualTrade';
@@ -18,12 +21,32 @@ export default function Analytics() {
   return (
     <Page>
       <Heading title="Analytics" />
+      <Text className="text-foreground">
+        {state.accounts.find((account) => account.id === state.accountId)?.name ??
+          'Trading account'}
+      </Text>
       <PeriodControl
         period={range}
         anchor={anchor}
         onPeriodChange={setRange}
         onAnchorChange={setAnchor}
       />
+      <BalanceGraph
+        accountId={state.accountId}
+        transactions={state.transactions}
+        window={periodWindow(range, anchor)}
+      />
+      <WinRateBreakdown
+        title="Win rate by session"
+        rows={winRates(trades, recordedSession, ['London', 'New York'])}
+      />
+      <WinRateBreakdown
+        title="Win rate by extreme timeframe"
+        rows={winRates(trades, extremeTimeframe, ['1H', '15M'])}
+      />
+      <Text className="text-muted text-sm">
+        Win rates use wins ÷ (wins + losses). Open and breakeven trades are excluded.
+      </Text>
       {!trades.length ? (
         <Empty
           text="No trades recorded in this period."
