@@ -17,6 +17,7 @@ import {
   useJournal,
 } from '@/lib/journal';
 import { eatDateKey, eatDisplay, entryGate } from '@/lib/terminus';
+import { tradeOutcome } from '@/lib/manualTrade';
 export default function Desk() {
   const scale = useReadingScale();
   const state = useJournal();
@@ -27,7 +28,7 @@ export default function Desk() {
   const [day, setDay] = useState(todayKey);
   const account = state.accounts.find((a) => a.id === state.accountId);
   const trades = state.trades.filter((t) => t.accountId === state.accountId);
-  const open = trades.filter((t) => t.exit === undefined);
+  const open = trades.filter((t) => tradeOutcome(t) === 'Open');
   const today = trades.filter((t) => eatDateKey(t.date) === todayKey);
   const gate = entryGate(account, trades, now, circuitUntil(trades));
   const locked = circuitUntil(trades) > now;
@@ -78,7 +79,7 @@ export default function Desk() {
           <Action label="Add trading account" onPress={() => router.push('/settings')} />
         )}
         <View className="border-border flex-row flex-wrap gap-3 border-t pt-4">
-          <Metric label="Trades today" value={`${today.length} / 2`} />
+          <Metric label="Trades today" value={String(today.length)} />
           <Metric label="Circuit" value={locked ? 'Locked' : 'Clear'} />
           <Metric label="EAT session" value={gate.session.open ? 'Open' : 'Closed'} />
         </View>
@@ -123,12 +124,8 @@ export default function Desk() {
           />
         )}
       </Section>
-      {trades.some((t) => t.exit !== undefined) ? (
-        <Action
-          secondary
-          label="Read closed trades in Book"
-          onPress={() => router.push('/journal')}
-        />
+      {trades.length ? (
+        <Action secondary label="Read trades in Book" onPress={() => router.push('/journal')} />
       ) : null}
       <Section title="Trading calendar">
         <View className="bg-surface gap-3 rounded-2xl p-4">

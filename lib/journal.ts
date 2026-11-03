@@ -4,14 +4,13 @@ import { AppState } from 'react-native';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import * as Haptics from 'expo-haptics';
-import { resolvePipSize } from '@/constants/instruments';
 import {
-  submissionFailure,
-  entryGate,
-  type NewsEvent,
-  type PipSetting,
-  type TradeAudit,
-} from '@/lib/terminus';
+  lossBreakUntil,
+  recordManualTrade,
+  type ManualTradeDraft,
+  type Outcome,
+} from '@/lib/manualTrade';
+import { type NewsEvent, type PipSetting, type TradeAudit } from '@/lib/terminus';
 export type Account = {
   id: string;
   name: string;
@@ -32,27 +31,34 @@ export type Trade = {
   date: string;
   instrument: string;
   direction: string;
-  session: string;
-  grade: string;
+  session?: string;
+  grade?: string;
   dailyBias: string;
   h4Bias: string;
-  aligned: string;
+  aligned?: string;
   extreme: string;
-  zone: string;
+  zone?: string;
   sweep: string;
   m15: string;
   m1: string;
-  entry: number;
-  stop: number;
-  target: number;
-  lots: number;
-  jpyPerUsd: number;
+  entry: number | string;
+  stop: number | string;
+  target: number | string;
+  lots: number | string;
+  jpyPerUsd?: number;
+  recordType?: 'manual';
+  riskPercent?: string;
+  rr?: string;
+  timeframe?: string;
+  emotion?: string;
+  manualEntry?: boolean;
+  result?: Outcome;
   plannedRisk?: number;
   audit?: TradeAudit;
-  news: string;
-  circuit: string;
-  checklist: string;
-  setup: string;
+  news?: string;
+  circuit?: string;
+  checklist?: string;
+  setup?: string;
   reason: string;
   exit?: number;
   closedAt?: string;
@@ -101,18 +107,6 @@ export const money = (amount: number) =>
     currency: 'USD',
     maximumFractionDigits: 2,
   }).format(amount);
-export const pnl = (trade: Trade) =>
-  trade.exit === undefined
-    ? 0
-    : trade.audit
-      ? ((trade.exit - trade.entry) / trade.audit.pipSize) *
-        (trade.direction === 'Long' ? 1 : -1) *
-        trade.audit.pipValue *
-        trade.lots
-      : (trade.exit - trade.entry) *
-        (trade.direction === 'Long' ? 1 : -1) *
-        trade.lots *
-        (trade.instrument.toUpperCase() === 'XAUUSD' ? 100 : 100000 / trade.jpyPerUsd);
 export const isSampleAccount = (accountId: string, transactions: Transaction[], trades: Trade[]) =>
   transactions.some(
     (t) => t.accountId === accountId && t.note === 'Practice initial deposit' && t.amount === 10000,
@@ -124,9 +118,8 @@ export const isSampleAccount = (accountId: string, transactions: Transaction[], 
         'Daily and 4H bullish; discount sweep confirmed on 15M, followed by clean 1M structure.' &&
       t.lesson === 'Wait for confirmation.',
   );
-export const balance = (accountId: string, trades: Trade[], txs: Transaction[]) =>
-  txs.filter((t) => t.accountId === accountId).reduce((s, t) => s + t.amount, 0) +
-  trades.filter((t) => t.accountId === accountId).reduce((s, t) => s + pnl(t), 0);
+export const balance = (accountId: string, _trades: Trade[], txs: Transaction[]) =>
+  txs.filter((t) => t.accountId === accountId).reduce((s, t) => s + t.amount, 0);
 export const success = () => {
   void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 };
@@ -151,15 +144,7 @@ export function useCurrentTime() {
   }, []);
   return now;
 }
-export function circuitUntil(trades: Trade[]) {
-  const closed = trades
-    .filter((t) => t.closedAt)
-    .sort((a, b) => (b.closedAt ?? '').localeCompare(a.closedAt ?? ''));
-  for (let i = 0; i < closed.length - 1; i++)
-    if (pnl(closed[i]) < 0 && pnl(closed[i + 1]) < 0)
-      return new Date(closed[i].closedAt!).getTime() + 86400000;
-  return 0;
-}
+export const circuitUntil = lossBreakUntil;
 export function circuitLocked(trades: Trade[], now = Date.now()) {
   return circuitUntil(trades) > now;
 }
@@ -183,14 +168,8 @@ interface JournalState {
   savePipSize: (instrument: string, size: number) => void;
   resetPipSize: (instrument: string) => void;
   addNewsEvent: (event: Omit<NewsEvent, 'id'>) => void;
-  addTrade: (trade: Omit<Trade, 'id' | 'date' | 'accountId'>) => string | undefined;
-  closeTrade: (
-    id: string,
-    exit: number,
-    explanations: string[],
-    outcome: string,
-    lesson: string,
-  ) => void;
+  addTrade: (trade: ManualTradeDraft) => string | undefined;
+  setTradeOutcome: (id: string, result: Exclude<Outcome, 'Open'>) => void;
   saveReview: (review: Review) => boolean;
 }
 export const useJournal = create<JournalState>()(
@@ -320,47 +299,21 @@ export const useJournal = create<JournalState>()(
         const account = current.accounts.find((a) => a.id === current.accountId);
         if (!account) return 'Create a trading account first.';
         const trades = current.trades.filter((t) => t.accountId === current.accountId);
-        const gate = entryGate(account, trades, Date.now(), circuitUntil(trades));
-        if (gate.locked) return gate.messages.join('\n');
-        const equity = balance(current.accountId, current.trades, current.transactions);
-        const failure = submissionFailure(trade, equity);
-        if (failure) return failure;
-        const pipSize = resolvePipSize(trade.instrument, account.pipSettings);
-        if (!pipSize || pipSize !== trade.audit?.pipSize)
-          return 'The instrument’s pip size changed. Check the current pip size before saving.';
-        const date = new Date().toISOString();
-        set((s) => ({
-          trades: [
-            {
-              ...trade,
-              audit: {
-                ...trade.audit!,
-                checkedAt: date,
-                newsEvents: (account.newsEvents ?? []).map((event) => ({ ...event })),
-                results: [],
-                mathVerified: false,
-              },
-              id: uid(),
-              date,
-              accountId: s.accountId,
-            },
-            ...s.trades,
-          ],
-        }));
+        const recorded = recordManualTrade(trade, account, trades, Date.now(), uid());
+        if (recorded.error !== undefined) return recorded.error;
+        set((s) => ({ trades: [recorded.trade, ...s.trades] }));
         success();
         return undefined;
       },
-      closeTrade: (id, exit, explanations, outcome, lesson) => {
+      setTradeOutcome: (id, result) => {
         set((s) => ({
           trades: s.trades.map((t) =>
             t.id === id && !t.closedAt
               ? {
                   ...t,
-                  exit,
+                  result,
+                  recordType: t.recordType,
                   closedAt: new Date().toISOString(),
-                  reflections: explanations,
-                  outcome,
-                  lesson,
                 }
               : t,
           ),

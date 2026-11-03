@@ -20,7 +20,8 @@ import { ArrowDownLeft, ArrowUpRight, ChevronRight, NotebookPen } from 'lucide-r
 import { SafeAreaView } from '@/components/ui/primitives/SafeAreaView';
 import { Text } from '@/components/JournalText';
 import { useReadingScale } from '@/lib/readingPreferences';
-import { money, pnl, selection, type Trade } from '@/lib/journal';
+import { selection, type Trade } from '@/lib/journal';
+import { tradeOutcome } from '@/lib/manualTrade';
 export function Page({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
   return (
     <SafeAreaView className="bg-background flex-1" edges={['top']}>
@@ -239,23 +240,9 @@ export function Message({ text }: { text: string }) {
     </View>
   );
 }
-export function RiskWarning({ saved = false }: { saved?: boolean }) {
-  return (
-    <View accessibilityRole="text" className="border-border gap-1 rounded-xl border p-3">
-      <Text className="text-foreground" style={{ fontFamily: 'Inter_600SemiBold' }}>
-        Above the 2% risk guideline
-      </Text>
-      <Text className="text-foreground">
-        {saved
-          ? 'The risk check was recorded as not met.'
-          : 'Reduce your declared risk to 2% or less before saving.'}
-      </Text>
-    </View>
-  );
-}
 export function TradeRow({ trade }: { trade: Trade }) {
   const [accent, muted, danger] = useThemeColor(['accent', 'muted', 'danger']);
-  const amount = pnl(trade);
+  const outcome = tradeOutcome(trade);
   const scale = useReadingScale();
   const Icon = trade.direction === 'Long' ? ArrowUpRight : ArrowDownLeft;
   return (
@@ -268,17 +255,15 @@ export function TradeRow({ trade }: { trade: Trade }) {
         alignItems: scale > 1 ? 'stretch' : 'center',
       }}
     >
-      <Icon
-        size={21}
-        color={trade.exit === undefined ? accent : amount >= 0 ? accent : danger}
-        strokeWidth={1.7}
-      />
+      <Icon size={21} color={outcome === 'Loss' ? danger : accent} strokeWidth={1.7} />
       <View className="flex-1 gap-1">
         <Text className="text-foreground text-base" style={{ fontFamily: 'Inter_600SemiBold' }}>
           {trade.instrument} <Text className="text-muted text-sm">{trade.direction}</Text>
         </Text>
         <Text className="text-muted text-xs" numberOfLines={1}>
-          {trade.setup}
+          {trade.recordType === 'manual'
+            ? `Risk ${trade.riskPercent}% · R:R ${trade.rr}`
+            : trade.setup}
         </Text>
       </View>
       <View
@@ -286,15 +271,13 @@ export function TradeRow({ trade }: { trade: Trade }) {
         style={{ alignItems: scale > 1 ? 'flex-start' : 'flex-end', flexShrink: 1 }}
       >
         <Text
-          className={
-            trade.exit === undefined ? 'text-accent' : amount >= 0 ? 'text-accent' : 'text-danger'
-          }
+          className={outcome === 'Loss' ? 'text-danger' : 'text-accent'}
           style={{ fontFamily: 'Inter_600SemiBold' }}
         >
-          {trade.exit === undefined ? 'Open' : money(amount)}
+          {outcome}
         </Text>
         <Text className="text-muted text-xs">
-          {trade.exit === undefined
+          {outcome === 'Open'
             ? new Date(trade.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
             : trade.closedAt
               ? `Closed ${new Date(trade.closedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`

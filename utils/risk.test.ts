@@ -1,358 +1,206 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { entryGate, sessionGate } from '@/lib/terminus';
 import {
-  auditFailure,
-  entryGate,
-  exceedsRiskLimit,
-  submissionFailure,
-  type TradeDraft,
-} from '@/lib/terminus';
+  isManualTrade,
+  lossBreakUntil,
+  manualFields,
+  manualTradeFailure,
+  rawTradeExport,
+  recordManualTrade,
+  tradeOutcome,
+  type ManualTradeDraft,
+  type Outcome,
+} from '@/lib/manualTrade';
 import type { Account, Trade } from '@/lib/journal';
-import { findInstrument, instruments, resolvePipSize } from '@/constants/instruments';
-function draft(riskPercent = 3): TradeDraft {
-  const lots = riskPercent / 10;
+import { instruments, resolvePipSize } from '@/constants/instruments';
+const account: Account = { id: 'kevin', name: 'Trading account' };
+const now = Date.parse('2026-11-03T14:00:00Z');
+function draft(): ManualTradeDraft {
   return {
-    instrument: 'EURUSD',
+    recordType: 'manual',
+    instrument: 'XAUUSD',
     direction: 'Long',
-    session: 'New York',
-    grade: 'A+',
     dailyBias: 'Bullish',
-    h4Bias: 'Bullish',
-    aligned: 'Yes',
-    extreme: 'Discount',
-    zone: 'Lower end of daily dealing range',
-    sweep: 'Previous low swept',
-    m15: 'Bullish rejection and CHoCH',
-    m1: 'CHoCH and BOS confirmed',
-    entry: 1.1,
-    stop: 1.09,
-    target: 1.12,
-    lots,
-    jpyPerUsd: 1,
-    plannedRisk: riskPercent * 100,
-    news: 'Quiet',
-    circuit: 'Clear',
-    checklist: 'Yes',
-    setup: 'Discount liquidity sweep',
-    reason: 'Aligned daily and 4H bullish structure',
+    h4Bias: 'Bearish',
+    extreme: 'Premium',
+    timeframe: '15M',
+    sweep: 'Previous high',
+    reason: 'Trader-entered structure, even with opposing biases',
+    m15: 'Rejection',
+    m1: 'BOS',
+    entry: '02500.000',
+    stop: '2600',
+    target: '2499',
+    riskPercent: '50',
+    rr: '1:0.5',
+    lots: '0.123456',
+    emotion: 'Revenge',
+    manualEntry: false,
+    result: 'Open',
+  };
+}
+function record(result: Outcome, date = now, id = 'trade'): Trade {
+  const saved = recordManualTrade({ ...draft(), result }, account, [], date, id);
+  assert.ok(saved.trade, saved.error);
+  return saved.trade;
+}
+void test('50% risk and 1:0.5 R:R save through the production recording path', () => {
+  const saved = recordManualTrade(draft(), account, [], now, 'high-risk');
+  assert.ok(saved.trade);
+  for (const [key] of manualFields) assert.equal(saved.trade[key], draft()[key]);
+  assert.equal(saved.trade.manualEntry, false);
+  assert.equal(saved.trade.audit, undefined);
+  assert.equal(saved.trade.closedAt, undefined);
+});
+void test('risk inputs have no upper or lower cap and are never recalculated', () => {
+  for (const riskPercent of ['1', '5', '30', '50', '100', '-10', '0', ' 0050.00 ', 'bad numbers']) {
+    const saved = recordManualTrade({ ...draft(), riskPercent }, account, [], now, riskPercent);
+    assert.ok(saved.trade);
+    assert.equal(saved.trade.riskPercent, riskPercent);
+  }
+});
+void test('every mandatory field is presence-only, with no numeric or strategy validation', () => {
+  for (const [key] of manualFields) assert.ok(manualTradeFailure({ ...draft(), [key]: ' ' }), key);
+  assert.equal(
+    manualTradeFailure({
+      ...draft(),
+      entry: '-1',
+      stop: 'oops',
+      target: '0',
+      rr: 'anything',
+      lots: '-99',
+    }),
+    undefined,
+  );
+});
+void test('both extreme timeframes save without a manual-entry confirmation requirement', () => {
+  for (const timeframe of ['1H', '15M'])
+    assert.ok(recordManualTrade({ ...draft(), timeframe }, account, [], now, timeframe).trade);
+});
+void test('raw JSON round-trip preserves whitespace, zeros, decimal text and R:R, without audits', () => {
+  const trade = record('Win');
+  const exported = JSON.parse(JSON.stringify(rawTradeExport(trade)));
+  assert.equal(exported.entry, '02500.000');
+  assert.equal(exported.rr, '1:0.5');
+  assert.equal(exported.riskPercent, '50');
+  assert.equal(exported.manualEntry, false);
+  assert.equal(exported.audit, undefined);
+  assert.equal(exported.pipSize, undefined);
+});
+void test('raw records satisfy cloud payload shape without numerical validation', () => {
+  assert.ok(isManualTrade(record('Loss')));
+  assert.ok(isManualTrade({ ...record('Open'), entry: 'not a number', lots: '-1' }));
+  assert.equal(isManualTrade({ ...record('Open'), entry: 2500 }), false);
+});
+void test('each creation-time outcome is kept exactly; completed outcomes have close times', () => {
+  for (const outcome of ['Win', 'Loss', 'Breakeven', 'Open'] as const) {
+    const trade = record(outcome);
+    assert.equal(tradeOutcome(trade), outcome);
+    assert.equal(trade.closedAt, outcome === 'Open' ? undefined : new Date(now).toISOString());
+  }
+});
+void test('daily trade count no longer limits recording', () => {
+  const trades = Array.from({ length: 10 }, (_, i) => record('Win', now - i * 1000, String(i)));
+  assert.equal(entryGate(account, trades, now, lossBreakUntil(trades)).locked, false);
+  assert.ok(recordManualTrade(draft(), account, trades, now, 'eleventh').trade);
+});
+void test('weekday session allows 16:00 EAT and closes at 21:00 EAT', () => {
+  assert.equal(sessionGate(Date.parse('2026-11-03T12:59:59Z')).open, false);
+  assert.equal(sessionGate(Date.parse('2026-11-03T13:00:00Z')).open, true);
+  assert.equal(sessionGate(Date.parse('2026-11-03T17:59:59Z')).open, true);
+  assert.equal(sessionGate(Date.parse('2026-11-03T18:00:00Z')).open, false);
+  assert.equal(sessionGate(Date.parse('2026-11-07T14:00:00Z')).open, false);
+  assert.ok(
+    recordManualTrade(draft(), account, [], Date.parse('2026-11-07T14:00:00Z'), 'weekend').error,
+  );
+});
+void test('manual news blocks exactly 15 minutes before and until 15 minutes after', () => {
+  const newsAccount = {
+    ...account,
+    newsEvents: [{ id: 'news', date: '2026-11-03', time: '17:00', expected: 'Jobs release' }],
+  };
+  const gate = (time: string) => entryGate(newsAccount, [], Date.parse(`2026-11-03T${time}Z`), 0);
+  assert.equal(gate('13:44:59').locked, false);
+  assert.equal(gate('13:45:00').locked, true);
+  assert.equal(gate('14:14:59').locked, true);
+  assert.equal(gate('14:15:00').locked, false);
+  assert.match(
+    recordManualTrade(draft(), newsAccount, [], now, 'news').error ?? '',
+    /News blackout/,
+  );
+});
+void test('overlapping news windows stay locked until the final window ends', () => {
+  const newsAccount = {
+    ...account,
+    newsEvents: [
+      { id: 'a', date: '2026-11-03', time: '17:00', expected: 'First release' },
+      { id: 'b', date: '2026-11-03', time: '17:20', expected: 'Second release' },
+    ],
+  };
+  assert.equal(entryGate(newsAccount, [], Date.parse('2026-11-03T14:34:59Z'), 0).locked, true);
+  assert.equal(entryGate(newsAccount, [], Date.parse('2026-11-03T14:35:00Z'), 0).locked, false);
+});
+void test('two logged losses lock for 24 hours from the second, then expire', () => {
+  const trades = [record('Loss', now - 60000, 'first'), record('Loss', now, 'second')];
+  const until = lossBreakUntil(trades);
+  assert.equal(until, now + 86400000);
+  assert.equal(entryGate(account, trades, until - 1, until).locked, true);
+  assert.equal(entryGate(account, trades, until, until).locked, false);
+  assert.match(
+    recordManualTrade(draft(), account, trades, now, 'third').error ?? '',
+    /Two-loss break/,
+  );
+});
+void test('wins and breakevens interrupt losses; open records do not count as losses', () => {
+  for (const result of ['Win', 'Breakeven'] as const) {
+    assert.equal(
+      lossBreakUntil([
+        record('Loss', now - 60000),
+        record(result, now - 30000),
+        record('Loss', now),
+      ]),
+      0,
+    );
+  }
+  assert.equal(lossBreakUntil([record('Loss'), record('Open')]), 0);
+});
+void test('loss timer uses explicitly logged outcomes, not inconsistent prices', () => {
+  const first = { ...record('Win', now - 1000), result: 'Loss' as const };
+  const second = { ...record('Win'), result: 'Loss' as const };
+  assert.equal(lossBreakUntil([first, second]), now + 86400000);
+});
+void test('historical export keeps trader inputs but strips calculated audit objects', () => {
+  const legacy: Trade = {
+    ...record('Win'),
+    recordType: undefined,
+    entry: 2500,
+    lots: 0.1,
     audit: {
       version: 1,
-      checkedAt: '2026-11-02T14:00:00Z',
+      checkedAt: '',
       timeframe: '1H',
       manualEntry: true,
       emotion: 'Calm',
-      accountBalance: 10000,
-      riskPercent,
+      accountBalance: 1000,
+      riskPercent: 3,
       stopPips: 100,
       targetPips: 200,
-      pipSize: 0.0001,
+      pipSize: 0.01,
       pipValue: 10,
-      units: lots * 100000,
-      lotsInput: String(lots),
+      units: 10000,
+      lotsInput: '0.10',
+      results: ['Risk within 2%'],
       newsEvents: [],
-      results: [],
     },
   };
-}
-void test('master directory contains all 39 distinct supplied instruments and pip sizes', () => {
+  const exported = rawTradeExport(legacy);
+  assert.equal('audit' in exported, false);
+  assert.equal(exported.riskPercent, 3);
+  assert.equal(exported.entry, 2500);
+});
+void test('existing instrument directory and broker preferences remain available', () => {
   assert.equal(instruments.length, 39);
-  assert.equal(new Set(instruments.map((item) => item.symbol)).size, 39);
-  for (const instrument of instruments) {
-    const expected =
-      instrument.category === 'Forex majors & crosses'
-        ? 0.0001
-        : instrument.category === 'Crypto'
-          ? 1
-          : instrument.symbol === 'XAGUSD'
-            ? 0.001
-            : 0.01;
-    assert.equal(instrument.defaultPipSize, expected, instrument.symbol);
-  }
-  assert.equal(findInstrument(' xauusd ')?.defaultPipSize, 0.01);
-  assert.equal(resolvePipSize('UNKNOWN'), undefined);
-});
-void test('account broker override takes precedence without altering directory defaults', () => {
-  const first: Account = {
-    id: 'first',
-    name: 'First',
-    pipSettings: [{ instrument: 'BTCUSD', size: 0.01 }],
-  };
-  const second: Account = { id: 'second', name: 'Second' };
-  assert.equal(resolvePipSize(' btcusd ', first.pipSettings), 0.01);
-  assert.equal(resolvePipSize('BTCUSD', second.pipSettings), 1);
-  assert.equal(findInstrument('BTCUSD')?.defaultPipSize, 1);
-  assert.equal(resolvePipSize('CUSTOM', [{ instrument: 'CUSTOM', size: 0.1 }]), 0.1);
-  assert.equal(resolvePipSize('BTCUSD', []), 1);
-});
-void test('math audit verifies prices across every directory instrument', () => {
-  for (const instrument of instruments) {
-    const trade = draft(2);
-    assert.ok(trade.audit);
-    const entry = 100;
-    const configured: TradeDraft = {
-      ...trade,
-      instrument: instrument.symbol,
-      entry,
-      stop: entry - 100 * instrument.defaultPipSize,
-      target: entry + 200 * instrument.defaultPipSize,
-      audit: { ...trade.audit, pipSize: instrument.defaultPipSize },
-    };
-    // Crypto needs an entry above its 100-pip stop distance.
-    configured.entry += 1000;
-    configured.stop += 1000;
-    configured.target += 1000;
-    assert.equal(auditFailure(configured), undefined, instrument.symbol);
-    assert.match(
-      auditFailure({ ...configured, stop: configured.stop - instrument.defaultPipSize }) ?? '',
-      /Stop-loss pips do not match/,
-      instrument.symbol,
-    );
-    assert.match(
-      auditFailure({ ...configured, target: configured.target + instrument.defaultPipSize }) ?? '',
-      /Take-profit pips do not match/,
-      instrument.symbol,
-    );
-  }
-});
-void test('Gold 502 pips verifies a 5.02 movement and broker changes do not rewrite its audit', () => {
-  const base = draft(2);
-  assert.ok(base.audit);
-  const trade: TradeDraft = {
-    ...base,
-    instrument: 'XAUUSD',
-    entry: 2500,
-    stop: 2494.98,
-    target: 2510.04,
-    audit: {
-      ...base.audit,
-      stopPips: 502,
-      targetPips: 1004,
-      pipSize: resolvePipSize('XAUUSD')!,
-      pipValue: 200 / (502 * base.lots),
-    },
-  };
-  assert.equal(auditFailure(trade), undefined);
-  const overrides = [{ instrument: 'XAUUSD', size: 0.1 }];
-  assert.equal(resolvePipSize('XAUUSD', overrides), 0.1);
-  assert.equal(trade.audit?.pipSize, 0.01);
-  assert.equal(auditFailure(trade), undefined);
-});
-void test('broker-specific pip sizes are used in the manual math audit', () => {
-  const trade = draft(2);
-  assert.ok(trade.audit);
-  const size = resolvePipSize('BTCUSD', [{ instrument: 'BTCUSD', size: 0.01 }])!;
-  const crypto = {
-    ...trade,
-    instrument: 'BTCUSD',
-    entry: 70000,
-    stop: 69999,
-    target: 70002,
-    audit: { ...trade.audit, pipSize: size },
-  };
-  assert.equal(auditFailure(crypto), undefined);
-  assert.match(
-    auditFailure({ ...crypto, audit: { ...crypto.audit, pipSize: 1 } }) ?? '',
-    /Stop-loss pips do not match/,
-  );
-});
-void test('declared risk above 2% blocks submission and strict compliance', () => {
-  const trade = draft();
-  assert.equal(submissionFailure(trade, 10000), 'Risk exceeds the 2% guideline.');
-  assert.equal(auditFailure(trade), 'Risk exceeds the 2% guideline.');
-  assert.equal(exceedsRiskLimit(trade, 10000), true);
-});
-void test('exactly 2% stays compliant and can be submitted', () => {
-  const trade = draft(2);
-  assert.equal(auditFailure(trade), undefined);
-  assert.equal(submissionFailure(trade, 10000), undefined);
-  assert.equal(exceedsRiskLimit(trade, 10000), false);
-});
-void test('current equity risk cap and positive balance remain mandatory', () => {
-  assert.equal(exceedsRiskLimit(draft(2), 5000), true);
-  for (const equity of [5000, 0, -100]) {
-    assert.match(submissionFailure(draft(2), equity) ?? '', /current account balance/);
-  }
-  const base = draft(2);
-  assert.ok(base.audit);
-  assert.match(submissionFailure({ ...base, plannedRisk: 201 }, 10000) ?? '', /2%/);
-  assert.match(
-    submissionFailure({ ...base, audit: { ...base.audit, riskPercent: 2.01 } }, 10000) ?? '',
-    /2%/,
-  );
-});
-void test('skipping math verification retains stop direction, lot format and reward requirements', () => {
-  const trade = draft(2);
-  assert.ok(trade.audit);
-  for (const invalid of [
-    { ...trade, stop: 1.11 },
-    { ...trade, target: 1.08 },
-    { ...trade, direction: 'Short', dailyBias: 'Bearish', h4Bias: 'Bearish', extreme: 'Premium' },
-  ]) {
-    assert.match(submissionFailure(invalid, 10000) ?? '', /opposite sides/);
-  }
-  assert.match(
-    submissionFailure(
-      { ...trade, lots: 0.12345, audit: { ...trade.audit, lotsInput: '0.12345' } },
-      10000,
-    ) ?? '',
-    /two decimal places/,
-  );
-  assert.match(
-    submissionFailure({ ...trade, audit: { ...trade.audit, targetPips: 150 } }, 10000) ?? '',
-    /at least twice/,
-  );
-});
-void test('session, daily limit, loss break and saved news blackout lock entry', () => {
-  const account: Account = { id: 'account', name: 'Test account' };
-  const now = Date.parse('2026-11-02T14:00:00Z');
-  assert.equal(entryGate(account, [], now, 0).locked, false);
-  assert.equal(entryGate(account, [], Date.parse('2026-11-02T10:00:00Z'), 0).locked, true);
-  assert.equal(entryGate(account, [], now, now + 1000).locked, true);
-  assert.equal(
-    entryGate(
-      {
-        ...account,
-        newsEvents: [{ id: 'news', date: '2026-11-02', time: '17:00', expected: 'Macro release' }],
-      },
-      [],
-      now,
-      0,
-    ).locked,
-    true,
-  );
-  const trade: Trade = {
-    ...draft(),
-    id: 'first',
-    accountId: account.id,
-    date: new Date(now).toISOString(),
-  };
-  assert.equal(entryGate(account, [trade], now, 0).locked, false);
-  assert.equal(entryGate(account, [trade, { ...trade, id: 'second' }], now, 0).locked, true);
-});
-void test('strategy and risk requirements remain mandatory when math verification is skipped', () => {
-  const base = draft(2);
-  assert.ok(base.audit);
-  const cases: TradeDraft[] = [
-    draft(3),
-    { ...base, h4Bias: 'Bearish' },
-    { ...base, dailyBias: 'Ranging', h4Bias: 'Ranging' },
-    { ...base, aligned: 'No' },
-    { ...base, extreme: 'Premium' },
-    ...(['zone', 'sweep', 'm15', 'm1', 'setup', 'reason'] as const).map((field) => ({
-      ...base,
-      [field]: '',
-    })),
-    { ...base, news: 'Blackout' },
-    { ...base, news: '' },
-    { ...base, checklist: 'No' },
-    { ...base, checklist: '' },
-    { ...base, audit: { ...base.audit, manualEntry: false } },
-    { ...base, audit: undefined },
-    { ...base, target: 1.115, audit: { ...base.audit, targetPips: 150 } },
-  ];
-  for (const trade of cases) {
-    assert.ok(submissionFailure(trade, 10000), 'Every nonmath requirement must block submission');
-    assert.ok(auditFailure(trade), 'Strict adherence must still flag the deviation');
-  }
-});
-void test('submission still requires a clear circuit breaker and complete numeric inputs', () => {
-  const base = draft(2);
-  assert.ok(base.audit);
-  for (const circuit of ['Locked', '']) {
-    assert.match(submissionFailure({ ...base, circuit }, 10000) ?? '', /circuit breaker/);
-  }
-  assert.match(submissionFailure({ ...base, instrument: '' }, 10000) ?? '', /instrument/);
-  for (const value of [0, -1, NaN, Infinity]) {
-    for (const field of ['entry', 'stop', 'target', 'lots', 'plannedRisk'] as const) {
-      assert.match(submissionFailure({ ...base, [field]: value }, 10000) ?? '', /positive number/);
-    }
-    for (const field of [
-      'accountBalance',
-      'riskPercent',
-      'stopPips',
-      'targetPips',
-      'pipSize',
-      'pipValue',
-      'units',
-    ] as const) {
-      assert.match(
-        submissionFailure({ ...base, audit: { ...base.audit, [field]: value } }, 10000) ?? '',
-        /positive number/,
-      );
-    }
-  }
-});
-void test('submission accepts inconsistent trader calculations unchanged within mandatory policy limits', () => {
-  const base = draft(2);
-  assert.ok(base.audit);
-  const cases: TradeDraft[] = [
-    { ...base, plannedRisk: 125 },
-    { ...base, stop: 1.08 },
-    { ...base, target: 1.13 },
-    { ...base, audit: { ...base.audit, stopPips: 37, targetPips: 83 } },
-    { ...base, lots: 0.12, audit: { ...base.audit, lotsInput: '0.12', units: 987 } },
-    { ...base, audit: { ...base.audit, pipValue: 100 } },
-  ];
-  for (const trade of cases) {
-    const original = structuredClone(trade);
-    assert.equal(submissionFailure(trade, 10000), undefined);
-    assert.deepEqual(trade, original, 'Validation must not recalculate entered values');
-    assert.ok(auditFailure(trade), 'Strict analytics remains separate from submission');
-  }
-});
-void test('each extreme timeframe is accepted and missing confirmations have specific errors', () => {
-  const base = draft(2);
-  assert.ok(base.audit);
-  for (const timeframe of ['1H', '15M'] as const) {
-    const trade: TradeDraft & { audit: NonNullable<TradeDraft['audit']> } = {
-      ...base,
-      audit: { ...base.audit, timeframe },
-    };
-    assert.equal(submissionFailure(trade, 10000), undefined);
-    assert.equal(
-      submissionFailure({ ...trade, audit: { ...trade.audit, manualEntry: false } }, 10000),
-      'Confirm “Did I enter manually?” in the Manual entry section.',
-    );
-  }
-  assert.equal(
-    submissionFailure({ ...base, audit: undefined }, 10000),
-    'Select the timeframe that defines the extreme.',
-  );
-});
-void test('BabyPips disagreement never blocks submission when other requirements pass', () => {
-  const base = draft(2);
-  assert.ok(base.audit);
-  const trade: TradeDraft = {
-    ...base,
-    plannedRisk: 125,
-    stop: 1.08,
-    target: 1.15,
-    lots: 0.12,
-    audit: {
-      ...base.audit,
-      stopPips: 37,
-      targetPips: 83,
-      units: 987,
-      lotsInput: '0.12',
-    },
-  };
-  const original = structuredClone(trade);
-  assert.match(auditFailure(trade) ?? '', /Manual risk figures disagree/);
-  assert.equal(submissionFailure(trade, 10000), undefined);
-  assert.deepEqual(trade, original);
-});
-void test('saved news blackout includes its start, excludes its end and merges overlapping windows', () => {
-  const now = Date.parse('2026-11-02T14:00:00Z');
-  const account: Account = {
-    id: 'account',
-    name: 'Test account',
-    newsEvents: [
-      { id: 'first', date: '2026-11-02', time: '17:00', expected: 'Macro release' },
-      { id: 'second', date: '2026-11-02', time: '17:20', expected: 'Press conference' },
-    ],
-  };
-  assert.equal(entryGate(account, [], now - 900001, 0).locked, false);
-  assert.equal(entryGate(account, [], now - 900000, 0).locked, true);
-  assert.match(entryGate(account, [], now, 0).messages.join(' '), /0h 35m 0s/);
-  assert.equal(entryGate(account, [], now + 2100000, 0).locked, false);
+  assert.equal(resolvePipSize('XAUUSD'), 0.01);
+  assert.equal(resolvePipSize('XAUUSD', [{ instrument: 'XAUUSD', size: 0.1 }]), 0.1);
 });

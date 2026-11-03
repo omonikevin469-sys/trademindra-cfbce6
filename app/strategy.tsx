@@ -8,35 +8,31 @@ import { circuitLocked, useJournal } from '@/lib/journal';
 const rules = [
   [
     'Trade recording',
-    'All entry requirements are mandatory: open session, available daily limit, clear circuit breaker, no news blackout, complete strategy checks, and risk within 2%. Your entered calculations are saved without verification.',
+    'Record your own prices, risk %, R:R ratio, lot size and outcome. Values are kept exactly as entered. No risk cap, math verification, strategy scoring or daily trade cap.',
   ],
   [
-    'Higher-timeframe mandate',
-    'Daily and 4H must agree. Bullish bias permits discount-only longs. Bearish bias permits premium-only shorts. Never trade equilibrium or the middle of the range.',
+    'Session',
+    'The recording window is 4:00–9:00 PM EAT, Monday–Friday. Outside this window, new trade recording is locked.',
   ],
   [
-    'The cascade',
-    '1D bias → 4H confirmation → 1H liquidity sweep at an extreme → 15M rejection or engulfing + CHoCH → 1M CHoCH + BOS entry. Never skip a step.',
-  ],
-  [
-    'Session & instruments',
-    'XAUUSD is primary; EURJPY is secondary. Directory instruments use their GR-ATC pip-size defaults unless overridden for your broker in Settings. Custom instruments require a saved broker pip size. The entry window is 4:00–9:00 PM EAT, Monday–Friday. Stop looking for new entries at 9:00 PM.',
-  ],
-  [
-    'Risk limit',
-    'Declared risk must not exceed 2% of equity. Place the stop beyond the sweep wick and never move it. Target opposing liquidity with a minimum 1:2 risk-to-reward ratio. Round position size down.',
-  ],
-  [
-    'News filter',
-    'No entry within 15 minutes before or after each manually saved news event. Record its EAT time and expected macro reaction in Settings.',
+    'Manual news',
+    'New trade recording is locked from 15 minutes before until 15 minutes after each manually saved news time. Set news times in EAT in Settings.',
   ],
   [
     'Circuit breaker',
-    'Maximum two trades per day. After two consecutive losses, take 24 hours off. No revenge trades, no FOMO, no boredom entries.',
+    'Logging two consecutive losses locks new trade recording for 24 hours from the second loss. Outcomes are recorded by the trader.',
   ],
   [
-    'Review the execution',
-    'Complete the journal before entering. After closing, explain every reflection item. A day without a trade is still worth reviewing.',
+    'Manual values',
+    'Biases, premium or discount, timeframe and cascade notes are journal entries, not entry rules. Any risk % or R:R ratio can be recorded.',
+  ],
+  [
+    'Outcomes',
+    'Choose Win, Loss, Breakeven or Open. An open trade can have its outcome recorded later. Completed records remain permanently saved.',
+  ],
+  [
+    'Account balance',
+    'Update your balance manually in Settings or on the Desk. Trade prices and outcomes do not calculate account profit or loss.',
   ],
 ];
 export default function Strategy() {

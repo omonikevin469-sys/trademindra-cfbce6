@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Session, Tables, TablesInsert } from '@biltme/backend';
 import { create } from 'zustand';
 import { isNewsEvent, isPipSetting, isTradeAudit } from '@/lib/terminus';
+import { isManualTrade } from '@/lib/manualTrade';
 import { bilt } from '@/lib/bilt';
 import type { Json } from '@/lib/database.types';
 import {
@@ -93,7 +94,8 @@ function isTransaction(value: unknown): value is Transaction {
     Number.isFinite(value.amount)
   );
 }
-function isTrade(value: unknown): value is Trade {
+export function isTrade(value: unknown): value is Trade {
+  if (isObject(value) && value.recordType === 'manual') return isManualTrade(value);
   return (
     isObject(value) &&
     [
@@ -133,6 +135,12 @@ function isTrade(value: unknown): value is Trade {
         value.plannedRisk > 0)) &&
     (value.exit === undefined ||
       (typeof value.exit === 'number' && Number.isFinite(value.exit) && value.exit > 0)) &&
+    (value.result === undefined ||
+      value.result === 'Win' ||
+      value.result === 'Loss' ||
+      value.result === 'Breakeven' ||
+      value.result === 'Open') &&
+    value.recordType === undefined &&
     (value.reflections === undefined ||
       (Array.isArray(value.reflections) &&
         value.reflections.every((v: unknown) => typeof v === 'string')))

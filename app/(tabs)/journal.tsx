@@ -5,16 +5,16 @@ import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { SafeAreaView } from '@/components/ui/primitives/SafeAreaView';
 import { Text } from '@/components/JournalText';
 import { Action, Empty, Heading, TradeRow } from '@/components/JournalUI';
-import { dateKey, money, pnl, useJournal, type Trade } from '@/lib/journal';
+import { dateKey, useJournal, type Trade } from '@/lib/journal';
 export default function Book() {
   const state = useJournal();
   const sections = useMemo(() => {
     const grouped = new Map<string, Trade[]>();
     state.trades
-      .filter((trade) => trade.accountId === state.accountId && trade.exit !== undefined)
-      .sort((a, b) => (b.closedAt ?? '').localeCompare(a.closedAt ?? ''))
+      .filter((trade) => trade.accountId === state.accountId)
+      .sort((a, b) => b.date.localeCompare(a.date))
       .forEach((trade) => {
-        const key = trade.closedAt ? dateKey(new Date(trade.closedAt)) : 'unknown';
+        const key = dateKey(new Date(trade.date));
         const data = grouped.get(key) ?? [];
         data.push(trade);
         grouped.set(key, data);
@@ -33,12 +33,10 @@ export default function Book() {
             <Heading title="Book" />
             <Text className="text-foreground text-base">
               {state.accounts.find((account) => account.id === state.accountId)?.name ??
-                'Closed trades'}
+                'Recorded trades'}
             </Text>
-            <Text className="text-muted text-sm">
-              Closed trades are permanently saved, newest first.
-            </Text>
-            <Action secondary label="Open trades" onPress={() => router.push('/')} />
+            <Text className="text-muted text-sm">All recorded trades, newest first.</Text>
+            <Action secondary label="Record a trade" onPress={() => router.push('/new-trade')} />
           </View>
         }
         renderSectionHeader={({ section }) => (
@@ -54,8 +52,7 @@ export default function Book() {
                   })}
             </Text>
             <Text className="text-muted text-sm">
-              {section.data.length} {section.data.length === 1 ? 'trade' : 'trades'} ·{' '}
-              {money(section.data.reduce((total, trade) => total + pnl(trade), 0))}
+              {section.data.length} {section.data.length === 1 ? 'trade' : 'trades'}
             </Text>
           </View>
         )}
@@ -66,9 +63,9 @@ export default function Book() {
         )}
         ListEmptyComponent={
           <Empty
-            text="Your closed trades will appear here, arranged by close day."
-            action="Open trades"
-            onPress={() => router.push('/')}
+            text="Your recorded trades will appear here."
+            action="Record a trade"
+            onPress={() => router.push('/new-trade')}
           />
         }
       />

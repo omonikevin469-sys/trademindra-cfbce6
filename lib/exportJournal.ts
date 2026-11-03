@@ -1,8 +1,9 @@
 import { Platform } from 'react-native';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { snapshot, useCloud } from '@/lib/cloud';
+import { isTrade, snapshot, useCloud } from '@/lib/cloud';
 import { isSampleAccount } from '@/lib/journal';
+import { rawTradeExport } from '@/lib/manualTrade';
 export function journalExportData(journal = snapshot(), conflicts = useCloud.getState().conflicts) {
   const sampleIds = new Set(
     journal.accounts
@@ -41,16 +42,20 @@ export function journalExportData(journal = snapshot(), conflicts = useCloud.get
     ...journal,
     accounts,
     transactions: journal.transactions.filter((t) => !sampleIds.has(t.accountId)),
-    trades: journal.trades.filter((t) => !sampleIds.has(t.accountId)),
+    trades: journal.trades.filter((t) => !sampleIds.has(t.accountId)).map(rawTradeExport),
     accountId: sampleIds.has(journal.accountId) ? (accounts[0]?.id ?? '') : journal.accountId,
-    syncConflicts,
+    syncConflicts: syncConflicts.map((entry) =>
+      entry.kind === 'trade' && isTrade(entry.payload)
+        ? { ...entry, payload: rawTradeExport(entry.payload) }
+        : entry,
+    ),
   };
 }
 export async function exportJournal() {
   const content = JSON.stringify(
     {
       format: 'TradeMindra Ultra',
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       ...journalExportData(),
     },
