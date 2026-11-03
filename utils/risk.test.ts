@@ -105,9 +105,20 @@ void test('daily trade count no longer limits recording', () => {
   assert.equal(entryGate(account, trades, now, lossBreakUntil(trades)).locked, false);
   assert.ok(recordManualTrade(draft(), account, trades, now, 'eleventh').trade);
 });
-void test('weekday session allows 16:00 EAT and closes at 21:00 EAT', () => {
-  assert.equal(sessionGate(Date.parse('2026-11-03T12:59:59Z')).open, false);
-  assert.equal(sessionGate(Date.parse('2026-11-03T13:00:00Z')).open, true);
+void test('weekday session allows 08:00 EAT and closes at 21:00 EAT', () => {
+  assert.equal(sessionGate(Date.parse('2026-11-03T04:59:59Z')).open, false);
+  assert.equal(sessionGate(Date.parse('2026-11-03T05:00:00Z')).open, true);
+  assert.ok(
+    recordManualTrade(draft(), account, [], Date.parse('2026-11-03T05:00:00Z'), 'morning').trade,
+  );
+  assert.equal(
+    sessionGate(Date.parse('2026-11-03T04:59:59Z')).nextOpen,
+    Date.parse('2026-11-03T05:00:00Z'),
+  );
+  assert.equal(
+    sessionGate(Date.parse('2026-11-06T18:00:00Z')).nextOpen,
+    Date.parse('2026-11-09T05:00:00Z'),
+  );
   assert.equal(sessionGate(Date.parse('2026-11-03T17:59:59Z')).open, true);
   assert.equal(sessionGate(Date.parse('2026-11-03T18:00:00Z')).open, false);
   assert.equal(sessionGate(Date.parse('2026-11-07T14:00:00Z')).open, false);

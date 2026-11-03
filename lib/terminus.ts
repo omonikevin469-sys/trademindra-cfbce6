@@ -30,9 +30,9 @@ export function sessionGate(now: number) {
   const local = new Date(now + offset);
   const day = local.getUTCDay();
   const minute = local.getUTCHours() * 60 + local.getUTCMinutes();
-  const open = day >= 1 && day <= 5 && minute >= 960 && minute < 1260;
+  const open = day >= 1 && day <= 5 && minute >= 480 && minute < 1260;
   const next = new Date(local);
-  next.setUTCHours(16, 0, 0, 0);
+  next.setUTCHours(8, 0, 0, 0);
   if (next.getTime() - offset <= now) next.setUTCDate(next.getUTCDate() + 1);
   while (next.getUTCDay() === 0 || next.getUTCDay() === 6) next.setUTCDate(next.getUTCDate() + 1);
   return { open, nextOpen: next.getTime() - offset };
@@ -48,7 +48,7 @@ export function entryGate(
   const session = sessionGate(now);
   if (!session.open)
     messages.push(
-      `Session opens in ${countdown(session.nextOpen - now)} · Mon–Fri, 16:00–21:00 EAT`,
+      `Session opens in ${countdown(session.nextOpen - now)} · Mon–Fri, 08:00–21:00 EAT`,
     );
   const windows = (account?.newsEvents ?? [])
     .map((event) => {
