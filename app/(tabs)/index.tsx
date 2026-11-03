@@ -3,7 +3,7 @@ import { View } from 'react-native';
 import { Text } from '@/components/JournalText';
 import { useReadingScale } from '@/lib/readingPreferences';
 import { router } from 'expo-router';
-import { Button, useThemeColor } from 'heroui-native';
+import { Button, Surface, useThemeColor } from 'heroui-native';
 import { ArrowUpRight, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react-native';
 import { BalanceControl } from '@/components/BalanceControl';
 import { Action, Empty, Heading, Metric, Page, Section, TradeRow } from '@/components/JournalUI';
@@ -18,6 +18,7 @@ import {
 } from '@/lib/journal';
 import { eatDateKey, eatDisplay, entryGate } from '@/lib/terminus';
 import { tradeOutcome } from '@/lib/manualTrade';
+import { forexSessions, forexSessionStatus } from '@/lib/forexSessions';
 export default function Desk() {
   const scale = useReadingScale();
   const state = useJournal();
@@ -84,6 +85,34 @@ export default function Desk() {
           <Metric label="EAT session" value={gate.session.open ? 'Open' : 'Closed'} />
         </View>
       </View>
+      <Section title="Forex sessions">
+        <Surface className="gap-4 rounded-2xl p-4">
+          {forexSessions.map(({ name, timeZone }, index) => {
+            const session = forexSessionStatus(now, timeZone);
+            return (
+              <View
+                key={timeZone}
+                className={index ? 'border-border gap-2 border-t pt-4' : 'gap-2'}
+              >
+                <View className="flex-row flex-wrap items-baseline justify-between gap-2">
+                  <Text className="text-foreground" style={{ fontFamily: 'Inter_600SemiBold' }}>
+                    {name}
+                  </Text>
+                  <Text className={session.open ? 'text-accent' : 'text-muted'}>
+                    {session.open ? 'Open' : 'Closed'}
+                  </Text>
+                </View>
+                <Text className="text-foreground" style={{ fontVariant: ['tabular-nums'] }}>
+                  {session.open ? 'Closes' : 'Opens'} in {session.countdown}
+                </Text>
+                <Text className="text-muted text-sm" style={{ fontVariant: ['tabular-nums'] }}>
+                  {session.localTime} local · Weekdays 08:00–17:00
+                </Text>
+              </View>
+            );
+          })}
+        </Surface>
+      </Section>
       <Action
         label="Record a trade"
         disabled={!account || gate.locked}

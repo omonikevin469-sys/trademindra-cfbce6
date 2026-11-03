@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { entryGate, sessionGate } from '@/lib/terminus';
+import { forexSessionStatus, sessionCountdown } from '@/lib/forexSessions';
 import {
   isManualTrade,
   lossBreakUntil,
@@ -14,6 +15,61 @@ import {
 } from '@/lib/manualTrade';
 import type { Account, Trade } from '@/lib/journal';
 import { instruments, resolvePipSize } from '@/constants/instruments';
+void test('forex sessions open at 08:00 and close at 17:00 in city local time', () => {
+  for (const [zone, opening, closing] of [
+    ['Europe/London', '2026-11-03T08:00:00Z', '2026-11-03T17:00:00Z'],
+    ['America/New_York', '2026-11-03T13:00:00Z', '2026-11-03T22:00:00Z'],
+  ] as const) {
+    const start = Date.parse(opening);
+    const end = Date.parse(closing);
+    assert.equal(forexSessionStatus(start - 1000, zone).open, false);
+    assert.equal(forexSessionStatus(start - 1000, zone).countdown, '00:00:01');
+    assert.equal(forexSessionStatus(start, zone).open, true);
+    assert.equal(forexSessionStatus(start, zone).nextChange, end);
+    assert.equal(forexSessionStatus(start, zone).localTime, '08:00:00');
+    assert.equal(forexSessionStatus(start, zone).countdown, '09:00:00');
+    assert.equal(forexSessionStatus(end - 1000, zone).open, true);
+    assert.equal(forexSessionStatus(end, zone).open, false);
+    assert.equal(forexSessionStatus(end, zone).nextChange, start + 86400000);
+  }
+});
+void test('forex weekend countdown follows spring and autumn DST transitions', () => {
+  for (const [zone, fridayClose, mondayOpen] of [
+    ['Europe/London', '2026-03-27T17:00:00Z', '2026-03-30T07:00:00Z'],
+    ['Europe/London', '2026-10-23T16:00:00Z', '2026-10-26T08:00:00Z'],
+    ['America/New_York', '2026-03-06T22:00:00Z', '2026-03-09T12:00:00Z'],
+    ['America/New_York', '2026-10-30T21:00:00Z', '2026-11-02T13:00:00Z'],
+  ] as const) {
+    const close = Date.parse(fridayClose);
+    const nextOpen = Date.parse(mondayOpen);
+    for (const timestamp of [close, close + 86400000, nextOpen - 1000]) {
+      const status = forexSessionStatus(timestamp, zone);
+      assert.equal(status.open, false);
+      assert.equal(status.nextChange, nextOpen);
+    }
+    assert.equal(forexSessionStatus(nextOpen, zone).open, true);
+    assert.equal(forexSessionStatus(nextOpen, zone).countdown, '09:00:00');
+  }
+});
+void test('London and New York independently track mismatched DST weeks', () => {
+  const time = Date.parse('2026-03-16T12:00:00Z');
+  assert.equal(forexSessionStatus(time, 'Europe/London').localTime, '12:00:00');
+  assert.equal(forexSessionStatus(time, 'America/New_York').localTime, '08:00:00');
+  assert.equal(forexSessionStatus(time, 'America/New_York').open, true);
+  const summer = Date.parse('2026-07-14T07:00:00Z');
+  assert.equal(forexSessionStatus(summer, 'Europe/London').open, true);
+  assert.equal(forexSessionStatus(summer, 'America/New_York').open, false);
+});
+void test('session countdown uses elapsed wall time and supports weekend durations', () => {
+  assert.equal(sessionCountdown(1000), '00:00:01');
+  assert.equal(sessionCountdown(1), '00:00:01');
+  assert.equal(sessionCountdown(0), '00:00:00');
+  assert.equal(sessionCountdown(63 * 3600000), '63:00:00');
+  const time = Date.parse('2026-11-03T13:00:00Z');
+  const first = forexSessionStatus(time, 'America/New_York');
+  assert.equal(forexSessionStatus(time + 125000, 'America/New_York').countdown, '08:57:55');
+  assert.equal(first.countdown, '09:00:00');
+});
 const account: Account = { id: 'kevin', name: 'Trading account' };
 const now = Date.parse('2026-11-03T14:00:00Z');
 function draft(): ManualTradeDraft {
