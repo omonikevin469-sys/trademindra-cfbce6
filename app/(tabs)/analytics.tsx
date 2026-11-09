@@ -6,6 +6,7 @@ import { Empty, Heading, Metric, Page, Section } from '@/components/JournalUI';
 import { PeriodControl } from '@/components/PeriodControl';
 import { withinPeriod, periodWindow, type Period } from '@/lib/periods';
 import { BalanceGraph } from '@/components/BalanceGraph';
+import { WinLossGraph } from '@/components/WinLossGraph';
 import { WinRateBreakdown } from '@/components/WinRateBreakdown';
 import { winRates, recordedSession, extremeTimeframe } from '@/lib/performance';
 import { useJournal } from '@/lib/journal';
@@ -37,6 +38,7 @@ export default function Analytics() {
         trades={state.trades}
         window={periodWindow(range, anchor)}
       />
+      <WinLossGraph accountId={state.accountId} trades={trades} />
       <WinRateBreakdown
         title="Win rate by session"
         rows={winRates(trades, recordedSession, ['London', 'New York'])}

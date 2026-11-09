@@ -7,6 +7,7 @@ import { Button, Surface, useThemeColor } from 'heroui-native';
 import { ArrowUpRight, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react-native';
 import { BalanceControl } from '@/components/BalanceControl';
 import { BalanceGraph } from '@/components/BalanceGraph';
+import { WinLossGraph } from '@/components/WinLossGraph';
 import { Action, Empty, Heading, Metric, Page, Section, TradeRow } from '@/components/JournalUI';
 import {
   balance,
@@ -91,6 +92,7 @@ export default function Desk() {
         transactions={state.transactions}
         trades={state.trades}
       />
+      <WinLossGraph accountId={state.accountId} trades={trades} />
       <Section title="Forex sessions">
         <Surface className="gap-4 rounded-2xl p-4">
           {forexSessions.map(({ name, timeZone }, index) => {
