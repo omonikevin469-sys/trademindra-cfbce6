@@ -12,7 +12,7 @@ const rules = [
   ],
   [
     'Session',
-    'The London and New York recording window is 8:00 AM–9:00 PM EAT, Monday–Friday. Outside this window, new trade recording is locked.',
+    'The trade recording window is 1:00 PM–9:00 PM EAT, Monday–Friday. Outside this window, new trade recording is locked.',
   ],
   [
     'Manual news',
