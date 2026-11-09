@@ -135,6 +135,8 @@ export function isTrade(value: unknown): value is Trade {
         value.plannedRisk > 0)) &&
     (value.exit === undefined ||
       (typeof value.exit === 'number' && Number.isFinite(value.exit) && value.exit > 0)) &&
+    (value.realizedPnl === undefined ||
+      (typeof value.realizedPnl === 'number' && Number.isFinite(value.realizedPnl))) &&
     (value.result === undefined ||
       value.result === 'Win' ||
       value.result === 'Loss' ||

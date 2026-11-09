@@ -34,6 +34,7 @@ export default function Analytics() {
       <BalanceGraph
         accountId={state.accountId}
         transactions={state.transactions}
+        trades={state.trades}
         window={periodWindow(range, anchor)}
       />
       <WinRateBreakdown

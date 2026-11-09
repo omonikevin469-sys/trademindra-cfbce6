@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 import { Text } from '@/components/JournalText';
 import { Action, Field, Message, Page, Section } from '@/components/JournalUI';
 import { InstrumentPicker } from '@/components/InstrumentPicker';
+import { ProfitLossField } from '@/components/ProfitLossField';
 import { JournalSelect } from '@/components/JournalSelect';
 import { circuitUntil, errorFeedback, selection, useCurrentTime, useJournal } from '@/lib/journal';
 import { emotions, entryGate } from '@/lib/terminus';
@@ -37,6 +38,7 @@ const initial: ManualTradeDraft = {
   emotion: 'Calm',
   manualEntry: false,
   result: 'Open',
+  realizedPnl: '',
 };
 export default function NewTrade() {
   const state = useJournal();
@@ -192,6 +194,12 @@ export default function NewTrade() {
           options={outcomes}
           onChange={(value) => update('result', value)}
         />
+        {draft.result !== 'Open' ? (
+          <ProfitLossField
+            value={draft.realizedPnl}
+            onChange={(value) => update('realizedPnl', value)}
+          />
+        ) : null}
       </Section>
     </Page>
   );

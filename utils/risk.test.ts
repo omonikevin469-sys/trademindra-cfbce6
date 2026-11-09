@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { entryGate, sessionGate } from '@/lib/terminus';
+import { entryGate, sessionGate, eatDateKey, tradeTimestamp } from '@/lib/terminus';
 import { forexSessionStatus, sessionCountdown } from '@/lib/forexSessions';
 import {
+  closeRecordedTrade,
+  parseProfitLoss,
   isManualTrade,
   lossBreakUntil,
   manualFields,
@@ -14,7 +16,13 @@ import {
   type Outcome,
 } from '@/lib/manualTrade';
 import type { Account, Trade, Transaction } from '@/lib/journal';
-import { balanceHistory, winRates, extremeTimeframe, recordedSession } from '@/lib/performance';
+import {
+  accountBalance,
+  balanceHistory,
+  winRates,
+  extremeTimeframe,
+  recordedSession,
+} from '@/lib/performance';
 import { instruments, resolvePipSize } from '@/constants/instruments';
 void test('forex sessions preserve local openings and New York closes at 21:00 EAT', () => {
   for (const [zone, opening, closing] of [
@@ -99,10 +107,21 @@ function draft(): ManualTradeDraft {
     emotion: 'Revenge',
     manualEntry: false,
     result: 'Open',
+    realizedPnl: '',
   };
 }
 function record(result: Outcome, date = now, id = 'trade'): Trade {
-  const saved = recordManualTrade({ ...draft(), result }, account, [], date, id);
+  const saved = recordManualTrade(
+    {
+      ...draft(),
+      result,
+      realizedPnl: result === 'Loss' ? '-75.50' : result === 'Win' ? '125.25' : '0',
+    },
+    account,
+    [],
+    date,
+    id,
+  );
   assert.ok(saved.trade, saved.error);
   return saved.trade;
 }
@@ -347,6 +366,118 @@ void test('performance breakdowns stay separate for each sub-account', () => {
     );
     assert.equal(rows[0].rate, rate);
   }
+});
+void test('manual P&L requires a finite signed amount only for closed trades', () => {
+  for (const text of ['', ' ', 'oops', 'NaN', 'Infinity', '0x10', '1,000', '--10']) {
+    assert.equal(parseProfitLoss(text), undefined);
+    assert.ok(
+      recordManualTrade(
+        { ...draft(), result: 'Win', realizedPnl: text },
+        account,
+        [],
+        now,
+        'invalid',
+      ).error,
+    );
+  }
+  for (const [text, amount] of [
+    ['125.25', 125.25],
+    [' -75.50 ', -75.5],
+    ['0', 0],
+    ['+.25', 0.25],
+  ] as const) {
+    assert.equal(parseProfitLoss(text), amount);
+    const saved = recordManualTrade(
+      { ...draft(), result: 'Win', realizedPnl: text },
+      account,
+      [],
+      now,
+      text,
+    );
+    assert.equal(saved.trade?.realizedPnl, amount);
+    assert.equal(saved.trade?.result, 'Win');
+  }
+  assert.equal(record('Open').realizedPnl, undefined);
+});
+void test('closing records manual P&L and exact close timestamp once, even after trading hours', () => {
+  const opened = record('Open');
+  const closeTime = Date.parse('2026-11-03T19:23:45Z');
+  const closed = closeRecordedTrade(opened, 'Loss', '-45.67', closeTime);
+  assert.ok(closed.trade);
+  assert.equal(closed.trade.date, opened.date);
+  assert.equal(closed.trade.closedAt, '2026-11-03T19:23:45.000Z');
+  assert.equal(closed.trade.realizedPnl, -45.67);
+  assert.equal(opened.closedAt, undefined);
+  assert.ok(closeRecordedTrade(closed.trade, 'Win', '100', closeTime + 1000).error);
+  assert.ok(closeRecordedTrade(opened, 'Loss', '', closeTime).error);
+});
+void test('P&L round-trip keeps amounts and permits legacy trades without an amount', () => {
+  for (const result of ['Win', 'Loss', 'Breakeven'] as const) {
+    const trade = record(result);
+    const exported = JSON.parse(JSON.stringify(rawTradeExport(trade)));
+    assert.equal(exported.realizedPnl, trade.realizedPnl);
+    assert.equal(exported.date, trade.date);
+    assert.equal(exported.closedAt, trade.closedAt);
+    assert.ok(isManualTrade(exported));
+  }
+  assert.ok(isManualTrade({ ...record('Loss'), realizedPnl: undefined }));
+  assert.equal(isManualTrade({ ...record('Loss'), realizedPnl: '-10' }), false);
+  assert.equal(isManualTrade({ ...record('Loss'), realizedPnl: Infinity }), false);
+});
+void test('balance and continuous line include P&L at close, scoped by account and period', () => {
+  const transactions: Transaction[] = [
+    {
+      id: 'deposit',
+      accountId: 'kevin',
+      amount: 1000,
+      note: 'Initial deposit',
+      date: '2026-10-31T12:00:00Z',
+    },
+  ];
+  const trades: Trade[] = [
+    { ...record('Win', now, 'win'), closedAt: '2026-11-03T15:00:00Z', realizedPnl: 100 },
+    { ...record('Loss', now, 'loss'), closedAt: '2026-11-04T15:00:00Z', realizedPnl: -40 },
+    { ...record('Win', now, 'other'), accountId: 'other', realizedPnl: 9999 },
+    { ...record('Win', now, 'legacy'), realizedPnl: undefined },
+    { ...record('Open', now, 'open'), realizedPnl: 999 },
+  ];
+  assert.equal(accountBalance(transactions, trades, 'kevin'), 1060);
+  assert.equal(accountBalance(transactions, trades, 'other'), 9999);
+  const window = { start: new Date('2026-11-01T00:00:00Z'), end: new Date('2026-12-01T00:00:00Z') };
+  const history = balanceHistory(transactions, 'kevin', window, now, trades);
+  assert.deepEqual(
+    history.points.map((point) => point.amount),
+    [1000, 1100, 1060, 1060],
+  );
+  assert.equal(history.points[1].time, Date.parse('2026-11-03T15:00:00Z'));
+  assert.equal(history.updates, 2);
+  const later = balanceHistory(
+    transactions,
+    'kevin',
+    { start: new Date('2026-11-05T00:00:00Z'), end: new Date('2026-11-06T00:00:00Z') },
+    now,
+    trades,
+  );
+  assert.ok(later.points.every((point) => point.amount === 1060));
+  const adjustment = 1200 - accountBalance(transactions, trades, 'kevin');
+  const adjusted = [
+    ...transactions,
+    {
+      id: 'adjustment',
+      accountId: 'kevin',
+      amount: adjustment,
+      note: 'Manual balance adjustment',
+      date: '2026-11-05T12:00:00Z',
+    },
+  ];
+  assert.equal(accountBalance(adjusted, trades, 'kevin'), 1200);
+  assert.equal(balanceHistory(adjusted, 'kevin', window, now, trades).points.at(-1)?.amount, 1200);
+});
+void test('journal timestamps include EAT date, year and exact time across midnight', () => {
+  assert.equal(eatDateKey('2026-11-03T22:23:45Z'), '2026-11-04');
+  const display = tradeTimestamp('2026-11-03T22:23:45Z');
+  assert.match(display, /4 Nov 2026/);
+  assert.match(display, /01:23:45 EAT/);
 });
 void test('existing instrument directory and broker preferences remain available', () => {
   assert.equal(instruments.length, 39);

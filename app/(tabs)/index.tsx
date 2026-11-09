@@ -86,7 +86,11 @@ export default function Desk() {
           <Metric label="EAT session" value={gate.session.open ? 'Open' : 'Closed'} />
         </View>
       </View>
-      <BalanceGraph accountId={state.accountId} transactions={state.transactions} />
+      <BalanceGraph
+        accountId={state.accountId}
+        transactions={state.transactions}
+        trades={state.trades}
+      />
       <Section title="Forex sessions">
         <Surface className="gap-4 rounded-2xl p-4">
           {forexSessions.map(({ name, timeZone }, index) => {

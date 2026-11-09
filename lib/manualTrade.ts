@@ -46,10 +46,42 @@ export type ManualTradeDraft = {
   emotion: string;
   manualEntry: boolean;
   result: Outcome;
+  realizedPnl: string;
 };
+export function parseProfitLoss(value: string): number | undefined {
+  const text = value.trim();
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(text)) return undefined;
+  const amount = Number(text);
+  return Number.isFinite(amount) ? amount : undefined;
+}
+export function profitLossFailure(value: string) {
+  return parseProfitLoss(value) === undefined
+    ? 'Enter the profit or loss amount in USD. Use a minus sign for a loss.'
+    : undefined;
+}
 export function manualTradeFailure(trade: ManualTradeDraft) {
   const missing = manualFields.find(([key]) => !trade[key].trim());
-  return missing ? `Complete ${missing[1].toLowerCase()}.` : undefined;
+  if (missing) return `Complete ${missing[1].toLowerCase()}.`;
+  return trade.result === 'Open' ? undefined : profitLossFailure(trade.realizedPnl);
+}
+export function closeRecordedTrade(
+  trade: Trade,
+  result: Exclude<Outcome, 'Open'>,
+  amount: string,
+  now: number,
+): { trade: Trade; error?: never } | { error: string; trade?: never } {
+  if (trade.closedAt || tradeOutcome(trade) !== 'Open')
+    return { error: 'This trade is already closed.' };
+  const error = profitLossFailure(amount);
+  if (error) return { error };
+  return {
+    trade: {
+      ...trade,
+      result,
+      realizedPnl: parseProfitLoss(amount),
+      closedAt: new Date(now).toISOString(),
+    },
+  };
 }
 export function tradeOutcome(trade: Trade): Outcome {
   if (trade.result) return trade.result;
@@ -81,13 +113,16 @@ export function recordManualTrade(
   const error = manualTradeFailure(draft);
   if (error) return { error };
   const date = new Date(now).toISOString();
+  const { realizedPnl, ...values } = draft;
   return {
     trade: {
-      ...draft,
+      ...values,
       id,
       accountId: account.id,
       date,
-      ...(draft.result !== 'Open' ? { closedAt: date } : {}),
+      ...(draft.result !== 'Open'
+        ? { closedAt: date, realizedPnl: parseProfitLoss(realizedPnl) }
+        : {}),
     },
   };
 }
@@ -101,6 +136,7 @@ export function rawTradeExport(trade: Trade) {
       ...manualFields.map(([key]) => [key, trade[key]]),
       ['manualEntry', trade.manualEntry],
       ...(trade.closedAt ? [['closedAt', trade.closedAt]] : []),
+      ...(trade.realizedPnl !== undefined ? [['realizedPnl', trade.realizedPnl]] : []),
     ]);
   }
   const { audit, ...raw } = trade;
@@ -141,6 +177,8 @@ export function isManualTrade(value: unknown): boolean {
     typeof record.manualEntry === 'boolean' &&
     outcomes.some((outcome) => outcome === record.result) &&
     record.audit === undefined &&
-    (record.closedAt === undefined || typeof record.closedAt === 'string')
+    (record.closedAt === undefined || typeof record.closedAt === 'string') &&
+    (record.realizedPnl === undefined ||
+      (typeof record.realizedPnl === 'number' && Number.isFinite(record.realizedPnl)))
   );
 }

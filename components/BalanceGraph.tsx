@@ -5,22 +5,33 @@ import { Svg, Path } from '@/components/ui/primitives/Svg';
 import { Text } from '@/components/JournalText';
 import { Action, Section } from '@/components/JournalUI';
 import { balanceHistory } from '@/lib/performance';
-import { money, type Transaction } from '@/lib/journal';
+import { money, useCurrentTime, type Trade, type Transaction } from '@/lib/journal';
+import { eatDisplay } from '@/lib/terminus';
+import { tradeOutcome } from '@/lib/manualTrade';
 
 const date = (time: number) =>
-  new Date(time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  eatDisplay(time, { month: 'short', day: 'numeric', year: 'numeric' });
 
 export function BalanceGraph({
   transactions,
+  trades,
   accountId,
   window,
 }: {
   transactions: Transaction[];
+  trades: Trade[];
   accountId: string;
   window?: { start: Date; end: Date };
 }) {
   const [accent, border] = useThemeColor(['accent', 'border']);
-  const { points, updates } = balanceHistory(transactions, accountId, window);
+  const now = useCurrentTime();
+  const { points, updates } = balanceHistory(transactions, accountId, window, now, trades);
+  const missingPnl = trades.filter(
+    (trade) =>
+      trade.accountId === accountId &&
+      tradeOutcome(trade) !== 'Open' &&
+      trade.realizedPnl === undefined,
+  ).length;
   const amounts = points.map((point) => point.amount);
   const min = Math.min(...amounts);
   const max = Math.max(...amounts);
@@ -41,7 +52,7 @@ export function BalanceGraph({
       <Text className="text-foreground">{money(points[points.length - 1].amount)} USD</Text>
       <View
         accessible
-        accessibilityLabel={`Balance history from ${date(start)} to ${date(end)}. ${updates} recorded updates. Balance ${money(points[points.length - 1].amount)}.`}
+        accessibilityLabel={`Balance history from ${date(start)} to ${date(end)} EAT. ${updates} recorded ${updates === 1 ? 'update' : 'updates'}. Balance ${money(points[points.length - 1].amount)}.`}
       >
         <Svg width="100%" height={168} viewBox="0 0 320 168" style={{ width: '100%', height: 168 }}>
           <Path
@@ -62,8 +73,14 @@ export function BalanceGraph({
         <Text className="text-muted text-xs">{date(end)}</Text>
       </View>
       <Text className="text-muted text-sm">
-        Recorded balance updates only; trade profit and loss are not inferred.
+        Includes recorded trade profit/loss and balance changes.
       </Text>
+      {missingPnl ? (
+        <Text className="text-muted text-sm">
+          {missingPnl} closed {missingPnl === 1 ? 'trade has' : 'trades have'} no recorded
+          profit/loss.
+        </Text>
+      ) : null}
       {!updates ? (
         <View className="gap-3">
           <Text className="text-muted">No balance updates in this period.</Text>

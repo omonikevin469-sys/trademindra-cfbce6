@@ -20,7 +20,8 @@ import { ArrowDownLeft, ArrowUpRight, ChevronRight, NotebookPen } from 'lucide-r
 import { SafeAreaView } from '@/components/ui/primitives/SafeAreaView';
 import { Text } from '@/components/JournalText';
 import { useReadingScale } from '@/lib/readingPreferences';
-import { selection, type Trade } from '@/lib/journal';
+import { selection, money, type Trade } from '@/lib/journal';
+import { tradeTimestamp } from '@/lib/terminus';
 import { tradeOutcome } from '@/lib/manualTrade';
 export function Page({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
   return (
@@ -123,6 +124,7 @@ export function Field({
   multiline = false,
   readOnly = false,
   error,
+  onBlur,
 }: {
   label: string;
   value: string;
@@ -132,6 +134,7 @@ export function Field({
   multiline?: boolean;
   readOnly?: boolean;
   error?: string;
+  onBlur?: () => void;
 }) {
   const scale = useReadingScale();
   const textStyle = { fontSize: 16 * scale, lineHeight: 24 * scale };
@@ -145,6 +148,7 @@ export function Field({
           editable={!readOnly}
           value={value}
           onChangeText={onChange}
+          onBlur={onBlur}
           placeholder={placeholder}
           style={{ ...textStyle, minHeight: 100 * scale }}
           className="border-field-border rounded-xl border"
@@ -156,6 +160,7 @@ export function Field({
           editable={!readOnly}
           value={value}
           onChangeText={onChange}
+          onBlur={onBlur}
           placeholder={placeholder}
           keyboardType={keyboardType}
         />
@@ -265,6 +270,14 @@ export function TradeRow({ trade }: { trade: Trade }) {
             ? `Risk ${trade.riskPercent}% · R:R ${trade.rr}`
             : trade.setup}
         </Text>
+        <Text className="text-muted text-xs">Opened {tradeTimestamp(trade.date)}</Text>
+        <Text className="text-muted text-xs">
+          {trade.closedAt
+            ? `Closed ${tradeTimestamp(trade.closedAt)}`
+            : outcome === 'Open'
+              ? 'Still open'
+              : 'Close date not recorded'}
+        </Text>
       </View>
       <View
         className="gap-1"
@@ -276,13 +289,9 @@ export function TradeRow({ trade }: { trade: Trade }) {
         >
           {outcome}
         </Text>
-        <Text className="text-muted text-xs">
-          {outcome === 'Open'
-            ? new Date(trade.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-            : trade.closedAt
-              ? `Closed ${new Date(trade.closedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
-              : 'Close date not recorded'}
-        </Text>
+        {trade.realizedPnl !== undefined ? (
+          <Text className="text-foreground text-xs">{money(trade.realizedPnl)}</Text>
+        ) : null}
       </View>
       <ChevronRight size={16} color={muted} />
     </Button>

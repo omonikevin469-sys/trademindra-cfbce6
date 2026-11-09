@@ -5,7 +5,8 @@ import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { SafeAreaView } from '@/components/ui/primitives/SafeAreaView';
 import { Text } from '@/components/JournalText';
 import { Action, Empty, Heading, TradeRow } from '@/components/JournalUI';
-import { dateKey, useJournal, type Trade } from '@/lib/journal';
+import { useJournal, type Trade } from '@/lib/journal';
+import { eatDateKey } from '@/lib/terminus';
 export default function Book() {
   const state = useJournal();
   const sections = useMemo(() => {
@@ -14,7 +15,7 @@ export default function Book() {
       .filter((trade) => trade.accountId === state.accountId)
       .sort((a, b) => b.date.localeCompare(a.date))
       .forEach((trade) => {
-        const key = dateKey(new Date(trade.date));
+        const key = eatDateKey(trade.date);
         const data = grouped.get(key) ?? [];
         data.push(trade);
         grouped.set(key, data);

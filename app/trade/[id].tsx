@@ -4,16 +4,18 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Text } from '@/components/JournalText';
 import { Action, Empty, Field, Message, Page, Section } from '@/components/JournalUI';
 import { JournalSelect } from '@/components/JournalSelect';
-import { errorFeedback, useJournal } from '@/lib/journal';
+import { ProfitLossField } from '@/components/ProfitLossField';
+import { errorFeedback, money, useJournal } from '@/lib/journal';
 import { manualFields, tradeOutcome, type Outcome } from '@/lib/manualTrade';
 import { goBackOrReplace } from '@/lib/navigation';
-import { eatDisplay } from '@/lib/terminus';
+import { tradeTimestamp } from '@/lib/terminus';
 import { saveAllPending } from '@/lib/cloud';
 export default function TradeDetails() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const state = useJournal();
   const trade = state.trades.find((item) => item.id === id);
   const [result, setResult] = useState<Exclude<Outcome, 'Open'> | ''>('');
+  const [realizedPnl, setRealizedPnl] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   if (!trade)
@@ -37,7 +39,15 @@ export default function TradeDetails() {
     if (!result || saving) return;
     setSaving(true);
     setError('');
-    if (!trade.closedAt) state.setTradeOutcome(trade.id, result);
+    if (!trade.closedAt) {
+      const failure = state.setTradeOutcome(trade.id, result, realizedPnl);
+      if (failure) {
+        setError(failure);
+        errorFeedback();
+        setSaving(false);
+        return;
+      }
+    }
     try {
       await saveAllPending();
       goBackOrReplace('/journal');
@@ -55,7 +65,7 @@ export default function TradeDetails() {
           <View className="gap-3">
             {error ? <Message text={error} /> : null}
             <Action
-              label={saving ? 'Saving…' : error ? 'Retry sync' : 'Save outcome'}
+              label={saving ? 'Saving…' : !open && error ? 'Retry sync' : 'Save outcome'}
               disabled={!result || saving}
               onPress={() => {
                 void close();
@@ -69,7 +79,18 @@ export default function TradeDetails() {
         <Text className="text-foreground">
           {trade.direction} · {tradeOutcome(trade)}
         </Text>
-        <Text className="text-muted">{eatDisplay(trade.date)} EAT</Text>
+      </Section>
+      <Section title="Trade times">
+        <View className="gap-1">
+          <Text className="text-muted text-sm">Opening date and time</Text>
+          <Text className="text-foreground">{tradeTimestamp(trade.date)}</Text>
+        </View>
+        <View className="gap-1">
+          <Text className="text-muted text-sm">Closing date and time</Text>
+          <Text className="text-foreground">
+            {trade.closedAt ? tradeTimestamp(trade.closedAt) : open ? 'Still open' : 'Not recorded'}
+          </Text>
+        </View>
       </Section>
       <Section title="Recorded values">
         {manualFields
@@ -114,13 +135,16 @@ export default function TradeDetails() {
             options={['Win', 'Loss', 'Breakeven']}
             onChange={setResult}
           />
+          <ProfitLossField value={realizedPnl} onChange={setRealizedPnl} />
         </Section>
       ) : (
         <Section title="Outcome">
           <Text className="text-foreground">{tradeOutcome(trade)}</Text>
-          {trade.closedAt ? (
-            <Text className="text-muted">{eatDisplay(trade.closedAt)} EAT</Text>
-          ) : null}
+          <Field
+            label="Profit/loss (USD)"
+            value={trade.realizedPnl === undefined ? 'Not recorded' : money(trade.realizedPnl)}
+            readOnly
+          />
         </Section>
       )}
       {trade.reflections?.length ? (

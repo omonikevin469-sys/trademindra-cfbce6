@@ -26,6 +26,8 @@ export const eatDateKey = (value: Date | number | string = Date.now()) =>
   new Date(new Date(value).getTime() + offset).toISOString().slice(0, 10);
 export const eatDisplay = (value: Date | number | string, options?: Intl.DateTimeFormatOptions) =>
   new Date(value).toLocaleString('en-GB', { timeZone: 'Africa/Nairobi', ...options });
+export const tradeTimestamp = (value: string) =>
+  `${eatDisplay(value, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} EAT`;
 export function sessionGate(now: number) {
   const local = new Date(now + offset);
   const day = local.getUTCDay();

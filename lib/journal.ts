@@ -5,12 +5,14 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import * as Haptics from 'expo-haptics';
 import {
+  closeRecordedTrade,
   lossBreakUntil,
   recordManualTrade,
   type ManualTradeDraft,
   type Outcome,
 } from '@/lib/manualTrade';
 import { type NewsEvent, type PipSetting, type TradeAudit } from '@/lib/terminus';
+import { accountBalance } from '@/lib/performance';
 export type Account = {
   id: string;
   name: string;
@@ -62,6 +64,7 @@ export type Trade = {
   reason: string;
   exit?: number;
   closedAt?: string;
+  realizedPnl?: number;
   reflections?: string[];
   outcome?: string;
   lesson?: string;
@@ -118,8 +121,8 @@ export const isSampleAccount = (accountId: string, transactions: Transaction[], 
         'Daily and 4H bullish; discount sweep confirmed on 15M, followed by clean 1M structure.' &&
       t.lesson === 'Wait for confirmation.',
   );
-export const balance = (accountId: string, _trades: Trade[], txs: Transaction[]) =>
-  txs.filter((t) => t.accountId === accountId).reduce((s, t) => s + t.amount, 0);
+export const balance = (accountId: string, trades: Trade[], txs: Transaction[]) =>
+  accountBalance(txs, trades, accountId);
 export const success = () => {
   void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 };
@@ -169,7 +172,11 @@ interface JournalState {
   resetPipSize: (instrument: string) => void;
   addNewsEvent: (event: Omit<NewsEvent, 'id'>) => void;
   addTrade: (trade: ManualTradeDraft) => string | undefined;
-  setTradeOutcome: (id: string, result: Exclude<Outcome, 'Open'>) => void;
+  setTradeOutcome: (
+    id: string,
+    result: Exclude<Outcome, 'Open'>,
+    realizedPnl: string,
+  ) => string | undefined;
   saveReview: (review: Review) => boolean;
 }
 export const useJournal = create<JournalState>()(
@@ -305,20 +312,14 @@ export const useJournal = create<JournalState>()(
         success();
         return undefined;
       },
-      setTradeOutcome: (id, result) => {
-        set((s) => ({
-          trades: s.trades.map((t) =>
-            t.id === id && !t.closedAt
-              ? {
-                  ...t,
-                  result,
-                  recordType: t.recordType,
-                  closedAt: new Date().toISOString(),
-                }
-              : t,
-          ),
-        }));
+      setTradeOutcome: (id, result, realizedPnl) => {
+        const trade = get().trades.find((item) => item.id === id);
+        if (!trade) return 'This trade could not be found.';
+        const closed = closeRecordedTrade(trade, result, realizedPnl, Date.now());
+        if (closed.error !== undefined) return closed.error;
+        set((s) => ({ trades: s.trades.map((item) => (item.id === id ? closed.trade : item)) }));
         success();
+        return undefined;
       },
       saveReview: (review) => {
         if (!completeReview(review) || get().reviews.some((r) => r.date === review.date)) {
